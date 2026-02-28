@@ -3,12 +3,11 @@ from datetime import datetime
 
 import streamlit as st
 
+from app.i18n import LANG_OPTIONS, t
 from app.managers.fs_issue_manager import FileModifiedExternallyError, FileSystemIssueManager
 
 # --- Page Config ---
-st.set_page_config(
-    page_title="MarkIssue (File System)", page_icon="📁", layout="wide", initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title=t("app_title"), page_icon="📁", layout="wide", initial_sidebar_state="expanded")
 
 
 # --- Initialize Manager & State ---
@@ -45,10 +44,23 @@ def get_status_color(status):
 
 
 def render_sidebar(issues):  # noqa: C901
-    st.sidebar.title("📁 MarkIssue Tracker")
+    st.sidebar.title(t("sidebar_title"))
 
-    with st.sidebar.expander("🛠️ 快捷功能", expanded=False):
-        if st.button("➕ 新建问题单", use_container_width=True, type="primary"):
+    # Language selector (top of sidebar)
+    lang_choice = st.sidebar.selectbox(
+        t("lang_selector_label"),
+        list(LANG_OPTIONS.keys()),
+        index=list(LANG_OPTIONS.values()).index(st.session_state._lang),
+        key="lang_selectbox",
+    )
+    new_lang = LANG_OPTIONS[lang_choice]
+    if new_lang != st.session_state._lang:
+        st.session_state._lang = new_lang
+        st.query_params["lang"] = new_lang
+        st.rerun()
+
+    with st.sidebar.expander(t("quick_actions"), expanded=False):
+        if st.button(t("btn_new_issue"), use_container_width=True, type="primary"):
             st.session_state.show_create = True
             st.session_state.show_dashboard = False
             st.session_state.show_settings = False
@@ -56,14 +68,14 @@ def render_sidebar(issues):  # noqa: C901
             st.session_state.edit_mode = False
             st.rerun()
 
-        if st.button("📊 统计看板", use_container_width=True):
+        if st.button(t("btn_dashboard"), use_container_width=True):
             st.session_state.show_dashboard = True
             st.session_state.show_create = False
             st.session_state.show_settings = False
             st.session_state.selected_issue_id = None
             st.rerun()
 
-        if st.button("⚙️ 配置管理", use_container_width=True):
+        if st.button(t("btn_settings"), use_container_width=True):
             st.session_state.show_settings = True
             st.session_state.show_dashboard = False
             st.session_state.show_create = False
@@ -72,27 +84,32 @@ def render_sidebar(issues):  # noqa: C901
 
     st.sidebar.divider()
 
-    st.sidebar.markdown("##### 过滤与搜索")
-    search_query = st.sidebar.text_input("关键字搜索", placeholder="输入标题或ID...").lower()
+    st.sidebar.markdown(f"##### {t('filter_search_header')}")
+    search_query = st.sidebar.text_input(t("filter_keyword_label"), placeholder=t("filter_keyword_placeholder")).lower()
 
-    with st.sidebar.expander("🔍 高级过滤", expanded=False):
-        status_filter = st.multiselect("状态", manager.VALID_STATUSES, default=manager.VALID_STATUSES)
+    with st.sidebar.expander(t("filter_advanced"), expanded=False):
+        status_filter = st.multiselect(t("filter_status"), manager.VALID_STATUSES, default=manager.VALID_STATUSES)
 
         all_tags = manager.get_tags()
-        tag_filter = st.multiselect("标签", all_tags)
-        tag_mode = st.radio("标签匹配模式", ["任一 (OR)", "全部 (AND)"], horizontal=True)
+        tag_filter = st.multiselect(t("filter_tags"), all_tags)
+        tag_or_label = t("filter_tag_or")
+        tag_and_label = t("filter_tag_and")
+        tag_mode = st.radio(t("filter_tag_mode"), [tag_or_label, tag_and_label], horizontal=True)
 
         all_users = manager.get_users()
-        assignee_filter = st.multiselect("负责人", all_users)
+        assignee_filter = st.multiselect(t("filter_assignee"), all_users)
 
         all_projects = manager.get_projects()
-        project_filter = st.multiselect("项目", all_projects)
+        project_filter = st.multiselect(t("filter_project"), all_projects)
 
-    st.sidebar.markdown("##### 显示设置")
-    sort_by = st.sidebar.selectbox("排序策略", ["最新创建", "最新更新", "最老创建"])
+    st.sidebar.markdown(f"##### {t('display_settings')}")
+    sort_newest = t("sort_newest")
+    sort_oldest = t("sort_oldest")
+    sort_updated = t("sort_updated")
+    sort_by = st.sidebar.selectbox(t("sort_by"), [sort_newest, sort_oldest, sort_updated])
 
     st.sidebar.divider()
-    batch_mode = st.sidebar.toggle("⚡ 批量操作模式", key="batch_mode_toggle")
+    batch_mode = st.sidebar.toggle(t("batch_mode"), key="batch_mode_toggle")
     if "batch_selected" not in st.session_state:
         st.session_state.batch_selected = set()
 
@@ -111,11 +128,11 @@ def render_sidebar(issues):  # noqa: C901
         # 4. 标签匹配
         if tag_filter:
             issue_tags = issue.get("tags", [])
-            if tag_mode == "任一 (OR)":
-                if not any(t in issue_tags for t in tag_filter):
+            if tag_mode == tag_or_label:
+                if not any(t_item in issue_tags for t_item in tag_filter):
                     continue
             else:  # AND
-                if not all(t in issue_tags for t in tag_filter):
+                if not all(t_item in issue_tags for t_item in tag_filter):
                     continue
         # 5. 搜索匹配
         if search_query:
@@ -124,15 +141,15 @@ def render_sidebar(issues):  # noqa: C901
         filtered_issues.append(issue)
 
     # 排序
-    if sort_by == "最新创建":
+    if sort_by == sort_newest:
         filtered_issues.sort(key=lambda x: x["created_at"], reverse=True)
-    elif sort_by == "最老创建":
+    elif sort_by == sort_oldest:
         filtered_issues.sort(key=lambda x: x["created_at"], reverse=False)
-    elif sort_by == "最新更新":
+    elif sort_by == sort_updated:
         filtered_issues.sort(key=lambda x: x["last_modified"], reverse=True)
 
     # 渲染文件树/列表
-    st.sidebar.subheader(f"问题列表 ({len(filtered_issues)})")
+    st.sidebar.subheader(f"{t('issue_list')} ({len(filtered_issues)})")
 
     # Group by status to display nicely
     grouped = {
@@ -180,34 +197,33 @@ def render_sidebar(issues):  # noqa: C901
 
 
 def render_create_view():
-    st.header("✨ 新建问题单")
+    st.header(t("create_header"))
 
     col1, col2 = st.columns([1, 1])
     with col1:
-        issue_type = st.selectbox("问题类型", ["bug", "fea", "opt", "doc", "task"])
+        issue_type = st.selectbox(t("create_type"), ["bug", "fea", "opt", "doc", "task"])
     with col2:
-        title = st.text_input("简述标题 (将作为文件名一部分)", max_chars=50)
+        title = st.text_input(t("create_title"), max_chars=50)
 
-    content = st.text_area("详细描述 (Markdown格式)", height=400)
+    content = st.text_area(t("create_content"), height=400)
 
-    # 额外元数据
-    with st.expander("附加属性"):
+    with st.expander(t("create_extra")):
         users = [""] + manager.get_users()
         projects = [""] + manager.get_projects()
         available_tags = manager.get_tags()
 
         col_meta1, col_meta2 = st.columns(2)
         with col_meta1:
-            assignee = st.selectbox("处理人", users)
+            assignee = st.selectbox(t("meta_assignee"), users)
         with col_meta2:
-            project = st.selectbox("归属项目", projects)
+            project = st.selectbox(t("meta_project"), projects)
 
-        priority = st.selectbox("优先级", ["Low", "Medium", "High", "Critical"])
-        selected_tags = st.multiselect("标签", available_tags)
+        priority = st.selectbox(t("meta_priority"), ["Low", "Medium", "High", "Critical"])
+        selected_tags = st.multiselect(t("meta_tags"), available_tags)
 
     col1, col2, _ = st.columns([1, 1, 4])
     with col1:
-        if st.button("💾 创建并保存", type="primary"):
+        if st.button(t("create_btn_submit"), type="primary"):
             if title:
                 extra = {}
                 if assignee:
@@ -220,25 +236,25 @@ def render_create_view():
                     extra["tags"] = selected_tags
 
                 new_id = manager.create_issue(issue_type, title, content, extra)
-                st.success(f"问题单 {new_id} 创建成功！")
+                st.success(t("create_success", None, new_id))
                 st.session_state.show_create = False
                 st.session_state.selected_issue_id = new_id
                 time.sleep(1)
                 st.rerun()
             else:
-                st.error("请输入标题")
+                st.error(t("create_error_title"))
 
     with col2:
-        if st.button("取消"):
+        if st.button(t("create_btn_cancel")):
             st.session_state.show_create = False
             st.rerun()
 
 
-@st.dialog("⚠ 文件冲突警告")
+@st.dialog(t("conflict_title"))
 def show_conflict_dialog(error_msg):
     st.error(error_msg)
-    st.write("此问题可能由于其他人正在编辑同一个文件，或者后台发生变动引起。")
-    if st.button("重新加载最新内容"):
+    st.write(t("conflict_info"))
+    if st.button(t("conflict_btn_reload")):
         st.session_state.edit_mode = False
         st.rerun()
 
@@ -247,8 +263,8 @@ def render_issue_view(issue_id):  # noqa: C901
     try:
         issue = manager.get_issue(issue_id)
     except Exception as e:
-        st.error(f"无法加载问题单: {e}")
-        if st.button("返回列表"):
+        st.error(t("issue_load_error", None, e))
+        if st.button(t("issue_btn_back")):
             st.session_state.selected_issue_id = None
             st.rerun()
         return
@@ -261,30 +277,30 @@ def render_issue_view(issue_id):  # noqa: C901
         tags_html = ""
         current_tags = issue.get("tags", [])
         if current_tags:
-            tags_html = " | ".join([f"🏷️ `{t}`" for t in current_tags])
+            tags_html = " | ".join([f"🏷️ `{tag}`" for tag in current_tags])
             st.caption(
-                f"路径: `{issue['filepath']}` | 最后修改: {format_timestamp(issue['last_modified'])} | {tags_html}"
+                f"{t('issue_path_label', None, issue['filepath'], format_timestamp(issue['last_modified']))} | {tags_html}"
             )
         else:
-            st.caption(f"路径: `{issue['filepath']}` | 最后修改: {format_timestamp(issue['last_modified'])}")
+            st.caption(t("issue_path_label", None, issue["filepath"], format_timestamp(issue["last_modified"])))
 
     with col_del:
-        if st.checkbox("确认删除", key=f"chk_del_{issue_id}"):
-            if st.button("🗑 永久删除", type="primary"):
+        if st.checkbox(t("issue_confirm_delete"), key=f"chk_del_{issue_id}"):
+            if st.button(t("issue_btn_delete"), type="primary"):
                 manager.delete_issue(issue_id)
                 st.session_state.selected_issue_id = None
                 st.session_state.edit_mode = False
-                st.success("已彻底删除文件！")
+                st.success(t("issue_delete_success"))
                 time.sleep(0.8)
                 st.rerun()
 
     with col_edit:
         if st.session_state.edit_mode:
-            if st.button("取消编辑"):
+            if st.button(t("issue_btn_cancel_edit")):
                 st.session_state.edit_mode = False
                 st.rerun()
         else:
-            if st.button("✏️ 编辑内容"):
+            if st.button(t("issue_btn_edit")):
                 st.session_state.edit_mode = True
                 st.rerun()
 
@@ -294,11 +310,13 @@ def render_issue_view(issue_id):  # noqa: C901
     for i, status in enumerate(manager.VALID_STATUSES):
         with cols[i]:
             if status.lower() == issue["status"].lower():
-                st.markdown(f"**:{get_status_color(issue['status'].upper())}[当前状态: {status.upper()}]**")
+                st.markdown(
+                    f"**:{get_status_color(issue['status'].upper())}[{t('issue_current_status', None, status.upper())}]**"
+                )
             else:
-                if st.button(f"流转到 ➔ {status.upper()}", key=f"mv_{status}"):
+                if st.button(t("issue_transition_to", None, status.upper()), key=f"mv_{status}"):
                     if manager.change_status(issue_id, status.lower()):
-                        st.success(f"已移动到 {status} 目录")
+                        st.success(t("issue_moved", None, status))
                         time.sleep(0.5)
                         st.rerun()
 
@@ -309,16 +327,13 @@ def render_issue_view(issue_id):  # noqa: C901
     # 主体内容区
     with col_main:
         if st.session_state.edit_mode:
-            # === 编辑模式 (乐观锁校验) ===
-            new_content = st.text_area("Markdown 内容", value=issue["content"], height=500)
-
-            # 使用一个隐藏的 key 来存当时读取的时间戳
+            new_content = st.text_area(t("issue_edit_content_label"), value=issue["content"], height=500)
             frontend_mtime = issue["last_modified"]
 
-            if st.button("💾 保存更改", type="primary"):
+            if st.button(t("issue_btn_save"), type="primary"):
                 try:
                     manager.save_issue_content(issue_id, new_content, frontend_mtime)
-                    st.success("保存成功！")
+                    st.success(t("issue_save_success"))
                     st.session_state.edit_mode = False
                     time.sleep(0.5)
                     st.rerun()
@@ -331,7 +346,7 @@ def render_issue_view(issue_id):  # noqa: C901
             st.divider()
 
             # --- Quick Attachments ---
-            uploaded_file = st.file_uploader("📎 上传附件到此问题单 (自动追加到文末)", key="file_uploader")
+            uploaded_file = st.file_uploader(t("issue_upload_label"), key="file_uploader")
             if uploaded_file is not None:
                 attachments_dir = manager.base_dir / "attachments"
                 attachments_dir.mkdir(exist_ok=True)
@@ -341,29 +356,27 @@ def render_issue_view(issue_id):  # noqa: C901
                 with open(file_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
 
-                # 自动生成 Markdown 相对链接追加到正文
-                attachment_md = f"\n\n📎 **附件**: [{uploaded_file.name}](../../attachments/{safe_name})"
                 if uploaded_file.type.startswith("image/"):
-                    attachment_md = f"\n\n📷 **图片附件**:\n![{uploaded_file.name}](../../attachments/{safe_name})"
+                    attachment_md = f"\n\n{t('attach_img_md', None, uploaded_file.name, safe_name)}"
+                else:
+                    attachment_md = f"\n\n{t('attach_link_md', None, uploaded_file.name, safe_name)}"
 
                 try:
                     manager.save_issue_content(issue_id, issue["content"] + attachment_md, issue["last_modified"])
-                    st.success("附件已上传并追加到正文！")
+                    st.success(t("issue_upload_success"))
                     time.sleep(1)
                     st.rerun()
                 except FileModifiedExternallyError as e:
                     show_conflict_dialog(str(e))
 
             # --- Quick Comments ---
-            new_comment = st.text_area("💬 追加评论", placeholder="输入进度更新或评论...", height=100)
-            if st.button("发送评论"):
+            new_comment = st.text_area(t("issue_comment_label"), placeholder=t("issue_comment_placeholder"), height=100)
+            if st.button(t("issue_btn_comment")):
                 if new_comment.strip():
-                    comment_text = (
-                        f"\n\n---\n**💬 追评 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]**:\n{new_comment.strip()}"
-                    )
+                    comment_text = f"\n\n{t('comment_header_md', None, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), new_comment.strip())}"
                     try:
                         manager.save_issue_content(issue_id, issue["content"] + comment_text, issue["last_modified"])
-                        st.success("评论已追加！")
+                        st.success(t("issue_comment_success"))
                         time.sleep(0.5)
                         st.rerun()
                     except FileModifiedExternallyError as e:
@@ -372,7 +385,7 @@ def render_issue_view(issue_id):  # noqa: C901
     # 元数据侧边栏
     with col_meta:
         with st.container(border=True):
-            st.markdown("### 🏷️ 属性")
+            st.markdown(t("meta_title"))
 
             users = [""] + manager.get_users()
             current_assignee = issue.get("assignee", "")
@@ -386,19 +399,19 @@ def render_issue_view(issue_id):  # noqa: C901
 
             available_tags = manager.get_tags()
             current_tags = issue.get("tags", [])
-            for t in current_tags:
-                if t not in available_tags:
-                    available_tags.append(t)
+            for tag in current_tags:
+                if tag not in available_tags:
+                    available_tags.append(tag)
 
             assignee = st.selectbox(
-                "处理人", users, index=users.index(current_assignee) if current_assignee in users else 0
+                t("meta_assignee"), users, index=users.index(current_assignee) if current_assignee in users else 0
             )
             project = st.selectbox(
-                "归属项目", projects, index=projects.index(current_project) if current_project in projects else 0
+                t("meta_project"), projects, index=projects.index(current_project) if current_project in projects else 0
             )
 
             priority = st.selectbox(
-                "优先级",
+                t("meta_priority"),
                 ["Low", "Medium", "High", "Critical"],
                 index=(
                     ["Low", "Medium", "High", "Critical"].index(issue.get("priority", "Low"))
@@ -407,19 +420,19 @@ def render_issue_view(issue_id):  # noqa: C901
                 ),
             )
 
-            tags = st.multiselect("标签", available_tags, default=current_tags)
+            tags = st.multiselect(t("meta_tags"), available_tags, default=current_tags)
 
-            if st.button("更新属性", key="update_meta"):
+            if st.button(t("meta_btn_update"), key="update_meta"):
                 manager.update_metadata(
                     issue_id, {"assignee": assignee, "project": project, "priority": priority, "tags": tags}
                 )
-                st.toast("属性已更新字典")
+                st.toast(t("meta_update_success"))
                 time.sleep(0.5)
                 st.rerun()
 
 
 def render_dashboard(issues):
-    st.header("📊 全景数据看板")
+    st.header(t("dashboard_header"))
     st.divider()
 
     total = len(issues)
@@ -429,28 +442,28 @@ def render_dashboard(issues):
     closed_count = len([i for i in issues if i["status"].lower() == "closed"])
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("总计数量", total)
-    col2.metric("Open", open_count)
-    col3.metric("In-Progress", inprog_count)
-    col4.metric("Fixed/Closed", fixed_count + closed_count)
+    col1.metric(t("dashboard_total"), total)
+    col2.metric(t("dashboard_open"), open_count)
+    col3.metric(t("dashboard_in_progress"), inprog_count)
+    col4.metric(t("dashboard_fixed") + "/" + t("dashboard_closed"), fixed_count + closed_count)
 
     st.divider()
 
     col_chart1, col_chart2 = st.columns(2)
     with col_chart1:
-        st.subheader("按类型分布")
-        type_counts = {}
+        st.subheader(t("dashboard_by_type"))
+        type_counts: dict[str, int] = {}
         for i in issues:
-            t = i.get("type", "unknown").upper()
-            type_counts[t] = type_counts.get(t, 0) + 1
+            tp = i.get("type", "unknown").upper()
+            type_counts[tp] = type_counts.get(tp, 0) + 1
         if type_counts:
             st.bar_chart(type_counts)
         else:
-            st.info("暂无数据")
+            st.info(t("dashboard_no_issues"))
 
     with col_chart2:
-        st.subheader("未完结按处理人分布")
-        user_counts = {}
+        st.subheader(t("dashboard_by_priority"))
+        user_counts: dict[str, int] = {}
         for i in issues:
             if i["status"].lower() not in ["fixed", "closed"]:
                 u = i.get("assignee", "Unassigned")
@@ -460,10 +473,9 @@ def render_dashboard(issues):
         if user_counts:
             st.bar_chart(user_counts)
         else:
-            st.info("暂无数据")
+            st.info(t("dashboard_no_issues"))
 
     st.divider()
-    st.subheader("未完结的高优先级问题 (High / Critical)")
     urgent_issues = [
         i
         for i in issues
@@ -471,76 +483,75 @@ def render_dashboard(issues):
     ]
     if urgent_issues:
         for u in urgent_issues:
-            st.markdown(
-                f"- 🔴 **[{u['type']}]** {u['title']} - *处理人: {u.get('assignee', '暂无')}* (Status: {u['status']})"
-            )
+            assignee_str = u.get("assignee", "—") or "—"
+            st.markdown(f"- 🔴 **[{u['type']}]** {u['title']} - *{assignee_str}* (Status: {u['status']})")
     else:
-        st.success("目前没有未完结的高优先级问题！")
+        st.success("✅")
 
 
 def render_settings_view():
-    st.header("⚙️ 配置管理")
+    st.header(t("settings_header"))
     st.divider()
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
         with st.container(border=True):
-            st.subheader("👤 用户管理")
-            new_user = st.text_input("新建用户", key="new_user_input")
-            if st.button("添加用户", use_container_width=True) and new_user:
+            st.subheader(t("settings_users_header"))
+            new_user = st.text_input(t("settings_add_user"), key="new_user_input")
+            if st.button(t("settings_btn_add_user"), use_container_width=True) and new_user:
                 manager.add_user(new_user)
-                st.success(f"已添加用户: {new_user}")
+                st.success(t("settings_user_added", None, new_user))
                 time.sleep(0.5)
                 st.rerun()
 
             existing_users = manager.get_users()
             if existing_users:
                 st.divider()
-                user_to_delete = st.selectbox("选择要删除的用户", [""] + existing_users)
-                if user_to_delete and st.button(f"🗑 删除 {user_to_delete}", use_container_width=True):
+                user_to_delete = st.selectbox(t("settings_current_users"), [""] + existing_users)
+                if user_to_delete and st.button(f"🗑 {user_to_delete}", use_container_width=True):
                     manager.remove_user(user_to_delete)
-                    st.success("已删除")
+                    st.success("✅")
                     time.sleep(0.5)
                     st.rerun()
 
     with col2:
         with st.container(border=True):
-            st.subheader("📁 项目管理")
-            new_project = st.text_input("新建项目", key="new_project_input")
-            if st.button("添加项目", use_container_width=True) and new_project:
+            st.subheader(t("settings_projects_header"))
+            new_project = st.text_input(t("settings_add_project"), key="new_project_input")
+            if st.button(t("settings_btn_add_project"), use_container_width=True) and new_project:
                 manager.add_project(new_project)
-                st.success(f"已添加项目: {new_project}")
+                st.success(t("settings_project_added", None, new_project))
                 time.sleep(0.5)
                 st.rerun()
 
             existing_projects = manager.get_projects()
             if existing_projects:
                 st.divider()
-                project_to_delete = st.selectbox("选择要删除的项目", [""] + existing_projects)
-                if project_to_delete and st.button(f"🗑 删除项目: {project_to_delete}", use_container_width=True):
+                project_to_delete = st.selectbox(t("settings_current_projects"), [""] + existing_projects)
+                if project_to_delete and st.button(f"🗑 {project_to_delete}", use_container_width=True):
                     manager.remove_project(project_to_delete)
-                    st.success("已删除")
+                    st.success("✅")
                     time.sleep(0.5)
                     st.rerun()
 
     with col3:
         with st.container(border=True):
-            st.subheader("🏷️ 标签管理")
-            new_tag = st.text_input("新建标签", key="new_tag_input")
-            if st.button("添加标签", use_container_width=True) and new_tag:
+            st.subheader(t("settings_tags_header"))
+            new_tag = st.text_input(t("settings_add_tag"), key="new_tag_input")
+            if st.button(t("settings_btn_add_tag"), use_container_width=True) and new_tag:
                 manager.add_tag(new_tag)
-                st.success(f"已添加标签: {new_tag}")
+                st.success(t("settings_tag_added", None, new_tag))
                 time.sleep(0.5)
                 st.rerun()
 
             existing_tags = manager.get_tags()
             if existing_tags:
                 st.divider()
-                tag_to_delete = st.selectbox("选择要删除的标签", [""] + existing_tags)
-                if tag_to_delete and st.button(f"🗑 删除标签: {tag_to_delete}", use_container_width=True):
+                tag_to_delete = st.selectbox(t("settings_current_tags"), [""] + existing_tags)
+                if tag_to_delete and st.button(f"🗑 {tag_to_delete}", use_container_width=True):
                     manager.remove_tag(tag_to_delete)
-                    st.success("已删除")
+                    st.success("✅")
                     time.sleep(0.5)
                     st.rerun()
 
@@ -548,50 +559,50 @@ def render_settings_view():
 def render_batch_action_bar():
     selected_ids = st.session_state.get("batch_selected", set())
     if not selected_ids:
-        st.info("💡 请在左侧勾选需要操作的问题单。")
+        st.info("💡")
         return
 
-    st.subheader(f"⚡ 批量操作 ({len(selected_ids)} 个已选)")
+    st.subheader(t("batch_selected", None, len(selected_ids)))
 
     with st.container(border=True):
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            new_status = st.selectbox("变更状态", ["-- 不变 --"] + manager.VALID_STATUSES)
+            new_status = st.selectbox(t("batch_status_label"), ["--"] + manager.VALID_STATUSES)
         with col2:
             all_users = manager.get_users()
-            new_assignee = st.selectbox("变更负责人", ["-- 不变 --"] + all_users)
+            new_assignee = st.selectbox(t("meta_assignee"), ["--"] + all_users)
         with col3:
             all_projects = manager.get_projects()
-            new_project = st.selectbox("变更项目", ["-- 不变 --"] + all_projects)
+            new_project = st.selectbox(t("meta_project"), ["--"] + all_projects)
         with col4:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🚀 执行批量更新", type="primary", use_container_width=True):
+            if st.button(t("batch_btn_apply"), type="primary", use_container_width=True):
                 updates = {}
-                if new_assignee != "-- 不变 --":
+                if new_assignee != "--":
                     updates["assignee"] = new_assignee
-                if new_project != "-- 不变 --":
+                if new_project != "--":
                     updates["project"] = new_project
 
                 selected_list = list(selected_ids)
                 if updates:
                     manager.batch_update_metadata(selected_list, updates)
 
-                if new_status != "-- 不变 --":
+                if new_status != "--":
                     manager.batch_change_status(selected_list, new_status)
 
-                st.success(f"成功更新 {len(selected_ids)} 个问题单！")
+                st.success(t("batch_success"))
                 st.session_state.batch_selected = set()
                 time.sleep(1)
                 st.rerun()
 
-    if st.button("🧹 清空选择", use_container_width=True):
+    if st.button(t("batch_btn_clear"), use_container_width=True):
         st.session_state.batch_selected = set()
         st.rerun()
 
 
 def render_index_page(issues):
-    st.title("📁 MarkIssue 概览")
+    st.title(f"📁 {t('index_header')}")
     st.markdown("---")
 
     total = len(issues)
@@ -600,50 +611,42 @@ def render_index_page(issues):
 
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     with col_stat1:
-        st.metric("总计问题单", total)
+        st.metric(t("index_metric_total"), total)
     with col_stat2:
-        st.metric("待处理 (Open)", open_count)
+        st.metric(t("index_metric_open"), open_count)
     with col_stat3:
-        st.metric("处理中 (In-Progress)", inprog_count)
+        st.metric(t("index_metric_progress"), inprog_count)
 
     st.divider()
 
     col_left, col_right = st.columns([2, 1])
 
     with col_left:
-        st.subheader("🕑 最近更新 (Recently Updated)")
+        st.subheader(t("index_recent_issues"))
         recent_issues = sorted(issues, key=lambda x: x["last_modified"], reverse=True)[:10]
 
         if not recent_issues:
-            st.info("暂无记录")
+            st.info(t("index_no_issues"))
         else:
             for issue in recent_issues:
                 with st.container(border=True):
                     c1, c2 = st.columns([4, 1])
                     with c1:
                         st.markdown(f"**[{issue['type']}]** {issue['title']}")
-                        st.caption(
-                            f"修改时间: {format_timestamp(issue['last_modified'])} | 负责人: {issue.get('assignee', '未指派')}"
-                        )
+                        assignee_display = issue.get("assignee") or "—"
+                        st.caption(f"{format_timestamp(issue['last_modified'])} | {assignee_display}")
                     with c2:
-                        if st.button("查看详情", key=f"index_{issue['id']}", use_container_width=True):
+                        if st.button("🔍", key=f"index_{issue['id']}", use_container_width=True):
                             st.session_state.selected_issue_id = issue["id"]
                             st.session_state.edit_mode = False
                             st.rerun()
 
     with col_right:
-        st.subheader("💡 快速上手")
-        st.info(
-            """
-        - **新建**: 点击左侧折叠区 `➕` 按钮开始创建。
-        - **搜索**: 使用侧边栏输入框进行关键字查询。
-        - **状态**: 点击流转按钮，文件会自动移动到相应目录下。
-        - **AI 友好**: 所有的内容都以 Markdown 存储在 `LocalStorage/issues` 下。
-        """
-        )
+        st.subheader(t("index_quick_start"))
+        st.info(t("index_quick_start_content"))
 
         st.divider()
-        if st.container(border=True).button("📊 前往数据大屏", use_container_width=True):
+        if st.container(border=True).button(t("index_btn_goto_dashboard"), use_container_width=True):
             st.session_state.show_dashboard = True
             st.rerun()
 
