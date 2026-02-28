@@ -64,9 +64,7 @@ streamlit run tracker_app.py --server.port 8505 --server.address 127.0.0.1
 我们推荐使用内建的 `docker-compose.yml`：
 ```bash
 # 一键后台启动容器
-make docker-up
-
-# 或直接使用原生的: docker-compose up -d
+docker compose up -d
 ```
 > **数据持久化说明**：容器里的生成数据会安全地映射保存在宿主机当前的 `./LocalStorage` 文件夹中。
 

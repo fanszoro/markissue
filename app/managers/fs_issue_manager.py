@@ -2,10 +2,13 @@ import os
 import json
 import shutil
 import re
+import threading
 from pathlib import Path
 from datetime import datetime
+import time
 from typing import List, Dict, Any, Optional, Tuple
 import logging
+import portalocker
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,13 @@ class FileSystemIssueManager:
         self.issues_dir = self.base_dir / "issues"
         self.metadata_file = self.issues_dir / "metadata.json"
         
+        # 并发控制锁 (进程内)
+        self._lock = threading.RLock()
+        
+        # 缓存层
+        self._scan_cache: List[Dict[str, Any]] = []
+        self._cache_mtimes: Dict[str, float] = {}
+        
         self._init_directory_structure()
 
     def _init_directory_structure(self):
@@ -52,81 +62,131 @@ class FileSystemIssueManager:
             self._save_metadata({})
 
     def _load_metadata(self) -> Dict[str, Any]:
-        """加载关系和元数据字典"""
-        if not self.metadata_file.exists():
-            return {}
-        try:
-            with open(self.metadata_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            logger.error("Failed to parse metadata.json, returning empty.")
-            return {}
+        """加载关系和元数据字典 (带锁，只读)"""
+        with self._lock:
+            if not self.metadata_file.exists():
+                return {}
+            try:
+                with portalocker.Lock(self.metadata_file, "r", encoding="utf-8", timeout=5) as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, portalocker.exceptions.LockException, FileNotFoundError):
+                return {}
+
+    def _update_metadata(self, updates_func):
+        """原子的读-改-写元数据"""
+        with self._lock:
+            with portalocker.Lock(self.metadata_file, "r+", encoding="utf-8", timeout=5) as f:
+                try:
+                    data = json.load(f)
+                except (json.JSONDecodeError, ValueError):
+                    data = {}
+                
+                new_data = updates_func(data)
+                
+                f.seek(0)
+                f.truncate()
+                json.dump(new_data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
 
     def _save_metadata(self, data: Dict[str, Any]):
-        """保存关系和元数据字典"""
-        with open(self.metadata_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        """覆盖保存元数据 (带锁)"""
+        with self._lock:
+            with portalocker.Lock(self.metadata_file, "w", encoding="utf-8", timeout=5) as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
 
     def _load_json_list(self, filename: str) -> List[str]:
-        path = self.issues_dir / filename
-        if not path.exists():
-            return []
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            return []
+        with self._lock:
+            path = self.issues_dir / filename
+            if not path.exists():
+                return []
+            try:
+                with portalocker.Lock(path, "r", encoding="utf-8", timeout=5) as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, portalocker.exceptions.LockException, FileNotFoundError):
+                return []
+
+    def _update_json_list(self, filename: str, update_func):
+        """原子的读-改-写 JSON 列表文件"""
+        with self._lock:
+            path = self.issues_dir / filename
+            # 确保文件存在以便以 r+ 模式打开
+            if not path.exists():
+                with portalocker.Lock(path, "w", encoding="utf-8") as f:
+                    json.dump([], f)
+                    
+            with portalocker.Lock(path, "r+", encoding="utf-8", timeout=5) as f:
+                try:
+                    data = json.load(f)
+                    if not isinstance(data, list): data = []
+                except (json.JSONDecodeError, ValueError):
+                    data = []
+                
+                new_data = update_func(data)
+                
+                f.seek(0)
+                f.truncate()
+                json.dump(new_data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
 
     def _save_json_list(self, filename: str, data: List[str]):
-        path = self.issues_dir / filename
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        with self._lock:
+            path = self.issues_dir / filename
+            with portalocker.Lock(path, "w", encoding="utf-8", timeout=5) as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
 
     def get_users(self) -> List[str]:
         return self._load_json_list("users.json")
 
     def add_user(self, username: str):
-        users = self.get_users()
-        if username and username not in users:
-            users.append(username)
-            self._save_json_list("users.json", users)
+        def _add(users):
+            if username and username not in users:
+                users.append(username)
+            return users
+        self._update_json_list("users.json", _add)
 
     def get_projects(self) -> List[str]:
         return self._load_json_list("projects.json")
 
     def add_project(self, project: str):
-        projects = self.get_projects()
-        if project and project not in projects:
-            projects.append(project)
-            self._save_json_list("projects.json", projects)
+        def _add(projects):
+            if project and project not in projects:
+                projects.append(project)
+            return projects
+        self._update_json_list("projects.json", _add)
 
     def remove_user(self, username: str):
-        users = self.get_users()
-        if username in users:
-            users.remove(username)
-            self._save_json_list("users.json", users)
+        def _rm(users):
+            if username in users:
+                users.remove(username)
+            return users
+        self._update_json_list("users.json", _rm)
 
     def remove_project(self, project: str):
-        projects = self.get_projects()
-        if project in projects:
-            projects.remove(project)
-            self._save_json_list("projects.json", projects)
+        def _rm(projects):
+            if project in projects:
+                projects.remove(project)
+            return projects
+        self._update_json_list("projects.json", _rm)
 
     # --- Tags Management ---
     def get_tags(self) -> List[str]:
         return self._load_json_list("tags.json")
 
     def add_tag(self, tag: str):
-        tags = self.get_tags()
-        if tag and tag not in tags:
-            tags.append(tag)
-            self._save_json_list("tags.json", tags)
+        def _add(tags):
+            if tag and tag not in tags:
+                tags.append(tag)
+            return tags
+        self._update_json_list("tags.json", _add)
 
     def remove_tag(self, tag: str):
-        tags = self.get_tags()
-        if tag in tags:
-            tags.remove(tag)
-            self._save_json_list("tags.json", tags)
+        def _rm(tags):
+            if tag in tags:
+                tags.remove(tag)
+            return tags
+        self._update_json_list("tags.json", _rm)
 
     def _parse_filename(self, filename: str) -> Optional[Dict[str, str]]:
         """
@@ -156,7 +216,27 @@ class FileSystemIssueManager:
     def scan_all_issues(self) -> List[Dict[str, Any]]:
         """
         遍历目录树，返回所有问题的结构化快照列表（不读取全文）
+        增加目录级别 MTime 缓存优化性能
         """
+        # 1. 检查各子目录 mtime，判断是否命中缓存
+        current_mtimes = {}
+        for status in self.VALID_STATUSES:
+            status_dir = self.issues_dir / status
+            if status_dir.exists():
+                current_mtimes[status] = status_dir.stat().st_mtime
+            else:
+                current_mtimes[status] = 0
+        
+        # 检查 metadata 是否变动
+        meta_mtime = self.metadata_file.stat().st_mtime if self.metadata_file.exists() else 0
+        current_mtimes["_metadata"] = meta_mtime
+
+        if self._scan_cache and self._cache_mtimes == current_mtimes:
+            # logger.debug("Scan cache hit.")
+            return self._scan_cache
+
+        # 2. 缓存未命中，执行全量扫描
+        # logger.debug("Scan cache miss, re-scanning.")
         issues = []
         metadata = self._load_metadata()
         
@@ -189,6 +269,11 @@ class FileSystemIssueManager:
                 
         # 默认按照创建时间倒序排
         issues.sort(key=lambda x: x["created_at"], reverse=True)
+        
+        # 更新缓存
+        self._scan_cache = issues
+        self._cache_mtimes = current_mtimes
+        
         return issues
 
     def get_issue(self, issue_id: str) -> Dict[str, Any]:
@@ -285,13 +370,13 @@ class FileSystemIssueManager:
         return True
 
     def update_metadata(self, issue_id: str, updates: Dict[str, Any]):
-        """更新附加属性字典"""
-        meta = self._load_metadata()
-        if issue_id not in meta:
-            meta[issue_id] = {}
-        
-        meta[issue_id].update(updates)
-        self._save_metadata(meta)
+        """更新附加属性字典 (原子操作)"""
+        def _update(meta):
+            if issue_id not in meta:
+                meta[issue_id] = {}
+            meta[issue_id].update(updates)
+            return meta
+        self._update_metadata(_update)
 
     def delete_issue(self, issue_id: str) -> bool:
         """
