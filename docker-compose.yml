@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  tracker:
+    build: .
+    container_name: markissue_tracker
+    ports:
+      - "8505:8505"
+    volumes:
+      # Mount the configurable directory to persist data outside the container
+      - ./${MARKISSUE_DATA_DIR:-LocalStorage}:/app/${MARKISSUE_DATA_DIR:-LocalStorage}
+    env_file:
+      - .env
+    restart: unless-stopped

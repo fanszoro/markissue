@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing
+.pytest_cache/
+
+# Environments
+# .env
+.venv
+env/
+venv/
+ENV/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Idea/VSCode
+.idea/
+.vscode/
+
+# Project specifically ignores actual user data content but tracks the folders
+# LocalStorage/**/*.md
+# LocalStorage/**/*.png
+# LocalStorage/**/*.jpg
+# LocalStorage/**/*.json
+# !LocalStorage/**/.gitkeep
+
+# Exclude the deprecated folder
+deprecated/

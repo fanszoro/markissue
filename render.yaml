@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: markissue-preview
+    env: docker
+    region: frankfurt
+    plan: free
+    branch: main
+    envVars:
+      - key: MARKISSUE_DATA_DIR
+        value: LocalStorage
+    rootDir: .
