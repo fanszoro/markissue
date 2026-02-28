@@ -1,0 +1,18 @@
+{
+  "bug_20250228001_login_crash": {
+    "assignee": "Frontend Engineer",
+    "priority": "Critical",
+    "project": "",
+    "tags": []
+  },
+  "fea_20250228002_dark_mode": {
+    "assignee": "ui-team",
+    "priority": "Medium"
+  },
+  "opt_20250227003_slow_query": {
+    "assignee": "Data Engineer",
+    "project": "",
+    "priority": "Low",
+    "tags": []
+  }
+}
