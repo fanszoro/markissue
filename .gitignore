@@ -30,3 +30,4 @@ Thumbs.db
 
 # Exclude the deprecated folder
 deprecated/
+node_modules/

@@ -1,11 +1,11 @@
 # 📁 MarkIssue
+
 ![Python](https://img.shields.io/badge/Python-3.12-blue) ![Streamlit](https://img.shields.io/badge/Streamlit-1.31-FF4B4B) ![NoDB](https://img.shields.io/badge/Database-None-success)
 
 **MarkIssue** 是一款极其轻巧、所见即所得的敏捷问题追踪系统 (Issue Tracker)。
 它让你彻底告别厚重的数据库和繁琐的后台配置，以最极简、最直观的方式管理你的项目进度。
 
 [🚀 立即体验在线 Demo](https://bf3tzdtgrlfvvhjche5nuf.streamlit.app/)
-
 
 ## 💡 为什么选择 MarkIssue？ (Why MarkIssue?)
 
@@ -17,6 +17,7 @@
   - 它不是要把人锁在系统里，而是**让所有的工作上下文都完美暴露且兼容现代 AI 编程流**。
 
 ## 🌟 核心特性
+
 除了基础的增删查改与状态流转，MarkIssue 提供了一系列极具生产力的功能：
 
 - **🏷️ 多标签分类系统**：支持为问题单挂载自定义标签组（如 `frontend`, `urgent` 等），方便快速过滤寻找目标。
@@ -30,12 +31,15 @@
 ## 📸 界面预览
 
 ### 1. 全景数据看板
+
 ![Dashboard](docs/images/dashboard.png)
 
 ### 2. 问题工作台与附件交互
+
 ![Issue View](docs/images/issue_view.png)
 
 ### 3. 配置管理中心
+
 ![Settings View](docs/images/settings_view.png)
 
 ---
@@ -45,7 +49,9 @@
 MarkIssue 提供了三种极速拉起的方式，开箱即用。应用程序默认启动在 `8505` 端口。
 
 ### 方式一：裸机直接运行 (本地开发/体验推荐)
+
 仅需克隆仓库并安装 Python 依赖：
+
 ```bash
 # 1. 克隆并进入目录
 git clone https://github.com/fanszoro/markissue.git
@@ -60,19 +66,23 @@ streamlit run tracker_app.py --server.port 8505 --server.address 127.0.0.1
 ```
 
 ### 方式二：Docker 本地容器化 (内网/私人服务器推荐)
+
 使用 Docker 可以最大程度保持你的宿主机环境的纯净。
 我们推荐使用内建的 `docker-compose.yml`：
+
 ```bash
 # 一键后台启动容器
 docker compose up -d
 ```
+
 > **数据持久化说明**：容器里的生成数据会安全地映射保存在宿主机当前的 `./LocalStorage` 文件夹中。
 
 ### ⚙️ 环境与配置变量 (Environment Variables)
+
 MarkIssue 遵循最少配置原则，系统本身只保留了一个最核心的数据目录变更入口，其余皆可使用 Streamlit 原生的启动参数调节：
 
-| 变量名 / 参数 | 说明 | 默认值 | 示例用法 |
-| --- | --- | --- | --- |
-| `MARKISSUE_DATA_DIR` | 指定 Markdown 文件与系统的保存/读取目录。非常适合将数据文件与代码完全物理隔离。 | `LocalStorage` | `export MARKISSUE_DATA_DIR=/var/data/issues` <br> `make run` |
-| `--server.port` | **Streamlit 原生参数**：指定 Web 服务的运行端口。 | `8505` | `streamlit run tracker_app.py --server.port 8080` |
-| `--server.address` | **Streamlit 原生参数**：指定监听的地址，局域网建议设置为 `0.0.0.0`。 | `localhost` 或 `0.0.0.0` | `streamlit run tracker_app.py --server.address 0.0.0.0` |
+| 变量名 / 参数        | 说明                                                                            | 默认值                   | 示例用法                                                     |
+| -------------------- | ------------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------ |
+| `MARKISSUE_DATA_DIR` | 指定 Markdown 文件与系统的保存/读取目录。非常适合将数据文件与代码完全物理隔离。 | `LocalStorage`           | `export MARKISSUE_DATA_DIR=/var/data/issues` <br> `make run` |
+| `--server.port`      | **Streamlit 原生参数**：指定 Web 服务的运行端口。                               | `8505`                   | `streamlit run tracker_app.py --server.port 8080`            |
+| `--server.address`   | **Streamlit 原生参数**：指定监听的地址，局域网建议设置为 `0.0.0.0`。            | `localhost` 或 `0.0.0.0` | `streamlit run tracker_app.py --server.address 0.0.0.0`      |
