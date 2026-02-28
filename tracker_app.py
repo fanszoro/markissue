@@ -4,6 +4,7 @@ from datetime import datetime
 
 import streamlit as st
 
+from app.components.enhanced_header import render_enhanced_issue_header
 from app.i18n import LANG_OPTIONS, t
 from app.managers.fs_issue_manager import FileModifiedExternallyError, FileSystemIssueManager
 
@@ -83,18 +84,39 @@ def get_status_color(status):
 
 def render_breadcrumb(path_tuples):
     """
-    Renders a breadcrumb: [(label, target_view, target_id), ...]
-    Using st.columns and markdown to ensure it looks tight without relying on unsupported st.button flags.
+    Renders clickable breadcrumbs: [(label, target_view, target_id), ...]
+    Using st.columns.
     """
-    html = "<div style='margin-bottom: 20px; font-size: 0.9em; color: gray;'>"
-    parts = []
-    # We just render static breadcrumb text to avoid unsupported Streamlit button issues.
-    # The dedicated back button handles the actual navigation.
+    total = len(path_tuples)
+    if total == 0:
+        return
+
+    weights = []
+    for i, _ in enumerate(path_tuples):
+        weights.append(3)
+        if i < total - 1:
+            weights.append(1)
+    weights.append(15)  # Pad end
+
+    cols = st.columns(weights)
     for i, (label, view, target_id) in enumerate(path_tuples):
-        parts.append(f"<span>{label}</span>")
-    html += " › ".join(parts)
-    html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
+        col_idx = i * 2
+        with cols[col_idx]:
+            if i == total - 1:
+                st.markdown(
+                    f"<span style='color: gray; font-size: 0.9em; line-height: 2.5;'>{label}</span>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                if st.button(label, key=f"bc_{i}_{view}_{target_id}", type="tertiary", use_container_width=True):
+                    nav_to(view, target_id)
+
+        if i < total - 1:
+            with cols[col_idx + 1]:
+                st.markdown(
+                    "<div style='text-align: center; color: gray; font-size: 1.2rem; line-height: 1.8;'>›</div>",
+                    unsafe_allow_html=True,
+                )
 
 
 def render_sidebar():
@@ -318,7 +340,7 @@ def _render_pagination_controls(total_issues, total_pages):
     p1, p2, p3 = st.columns([1, 2, 1])
     with p1:
         if st.session_state.current_page > 1:
-            if st.button("⬅ " + t("page_prev"), use_container_width=True):
+            if st.button("⬅ " + t("page_prev"), use_container_width=True, type="tertiary"):
                 st.session_state.current_page -= 1
                 st.rerun()
     with p2:
@@ -328,7 +350,7 @@ def _render_pagination_controls(total_issues, total_pages):
         )
     with p3:
         if st.session_state.current_page < total_pages:
-            if st.button(t("page_next") + " ➡", use_container_width=True):
+            if st.button(t("page_next") + " ➡", use_container_width=True, type="tertiary"):
                 st.session_state.current_page += 1
                 st.rerun()
 
@@ -373,16 +395,16 @@ def render_all_issues(issues):
                 with c1:
                     st.markdown(f"**{issue['title']}**")
                     tags_html = " ".join([f"`{t}`" for t in issue.get("tags", [])])
-                    st.caption(f"{issue['id']} {tags_html}")
+                    st.caption(f"🔖 {issue['id']} {tags_html}")
                 with c2:
                     color = get_status_color(issue["status"].upper())
                     st.markdown(f":{color}[**{issue['status'].upper()}**]")
                 with c3:
                     assignee = issue.get("assignee") or "—"
                     st.markdown(f"👤 {assignee}")
-                    st.caption(format_timestamp(issue["last_modified"]))
+                    st.caption(f"🕒 {format_timestamp(issue['last_modified'])}")
                 with c4:
-                    if st.button("➔", key=f"navbtn_{issue['id']}", use_container_width=True):
+                    if st.button("➔", key=f"navbtn_{issue['id']}", use_container_width=True, type="tertiary"):
                         nav_to("issue_detail", issue["id"])
 
     _render_pagination_controls(total_issues, total_pages)
@@ -459,12 +481,7 @@ def _render_issue_header(issue):
         ]
     )
 
-    col_back, col_title = st.columns([1, 11])
-    with col_back:
-        if st.button("⬅ " + t("nav_back")):
-            nav_to("all_issues")
-    with col_title:
-        st.markdown(f"## `[{issue['type']}]` {issue['title']}")
+    st.markdown(f"## 📄 `[{issue['type']}]` {issue['title']}")
 
     current_tags = issue.get("tags", [])
     if current_tags:
@@ -477,19 +494,35 @@ def _render_issue_header(issue):
 
 
 def _render_status_transitions(issue_id, issue_status):
-    """Renders the row of status transition buttons."""
-    # Status transition buttons row
-    cols = st.columns(len(manager.VALID_STATUSES))
-    for i, status in enumerate(manager.VALID_STATUSES):
-        with cols[i]:
+    """Renders the row of status transition buttons with arrows."""
+    statuses = manager.VALID_STATUSES
+    weights = []
+    for _ in range(len(statuses)):
+        weights.append(4)
+        weights.append(1)
+    weights.pop()
+    cols = st.columns(weights)
+
+    for i, status in enumerate(statuses):
+        col_idx = i * 2
+        with cols[col_idx]:
+            trans_label = t(f"status_{status}") if t(f"status_{status}") != f"status_{status}" else status.upper()
             if status.lower() == issue_status.lower():
-                st.markdown(f"**:{get_status_color(issue_status.upper())}[✓ {status.upper()}]**")
+                st.button(
+                    f"✓ {trans_label}", key=f"mv_{status}_cur", use_container_width=True, type="primary", disabled=True
+                )
             else:
-                if st.button(t("issue_transition_to").format(status.upper()), key=f"mv_{status}"):
+                if st.button(trans_label, key=f"mv_{status}", use_container_width=True, type="secondary"):
                     if manager.change_status(issue_id, status.lower()):
-                        st.toast(t("issue_moved").format(status))
+                        st.toast(t("issue_moved").format(trans_label))
                         time.sleep(0.5)
                         st.rerun()
+        if i < len(statuses) - 1:
+            with cols[col_idx + 1]:
+                st.markdown(
+                    "<div style='text-align: center; color: #adb5bd; font-size: 1.5rem; line-height: 2.2;'>➔</div>",
+                    unsafe_allow_html=True,
+                )
 
 
 def _render_issue_content(issue):
@@ -537,7 +570,7 @@ def _render_issue_attachments_and_comments(issue):
                 show_conflict_dialog(str(e))
 
         new_comment = st.text_area(t("issue_comment_label"), placeholder=t("issue_comment_placeholder"), height=100)
-        if st.button(t("issue_btn_comment")):
+        if st.button(t("issue_btn_comment"), type="primary"):
             if new_comment.strip():
                 comment_text = f"\n\n{t('comment_header_md').format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), new_comment.strip())}"
                 try:
@@ -605,33 +638,12 @@ def render_issue_view(issue_id):
             nav_to("all_issues")
         return
 
-    _render_issue_header(issue)
-
-    # 顶栏区 (操作区)
-    st.write("---")
-    c_status, c_del, c_edit = st.columns([8, 2, 2])
-    with c_status:
-        _render_status_transitions(issue_id, issue["status"])
-
-    with c_del:
-        if st.checkbox(t("issue_confirm_delete"), key=f"chk_del_{issue_id}"):
-            if st.button(t("issue_btn_delete"), type="primary"):
-                manager.delete_issue(issue_id)
-                st.success(t("issue_delete_success"))
-                time.sleep(0.5)
-                nav_to("all_issues")
-
-    with c_edit:
-        label = t("issue_btn_cancel_edit") if st.session_state.edit_mode else t("issue_btn_edit")
-        if st.button(label, use_container_width=True):
-            st.session_state.edit_mode = not st.session_state.edit_mode
-            st.rerun()
-
-    st.write("---")
-
-    col_main, col_meta = st.columns([3, 1])
+    # 使用增强的头部组件
+    render_enhanced_issue_header(issue, manager)
 
     # 主体内容区
+    col_main, col_meta = st.columns([3, 1])
+
     with col_main:
         _render_issue_content(issue)
         if not st.session_state.edit_mode:
@@ -656,7 +668,7 @@ def render_dashboard(issues):
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         with st.container(border=True):
-            st.metric(t("dashboard_total"), total)
+            st.metric("📦 " + t("dashboard_total"), total)
     with col2:
         with st.container(border=True):
             st.metric("🔴 " + t("dashboard_open"), open_count)
@@ -682,13 +694,13 @@ def render_dashboard(issues):
                 with st.container(border=True):
                     c1, c2 = st.columns([4, 1])
                     with c1:
-                        st.markdown(f"**[{issue['type']}]** {issue['title']}")
+                        st.markdown(f"🎫 **[{issue['type']}]** {issue['title']}")
                         assignee_display = issue.get("assignee") or "—"
                         st.caption(
-                            f"{format_timestamp(issue['last_modified'])} | {assignee_display} | Status: {issue['status']}"
+                            f"🕒 {format_timestamp(issue['last_modified'])} | 👤 {assignee_display} | 🚥 {issue['status']}"
                         )
                     with c2:
-                        if st.button("➔", key=f"d_nav_{issue['id']}", use_container_width=True):
+                        if st.button("➔", key=f"d_nav_{issue['id']}", use_container_width=True, type="tertiary"):
                             nav_to("issue_detail", issue["id"])
 
     with col_right:
@@ -726,7 +738,7 @@ def render_settings_view():
             if existing_users:
                 st.divider()
                 user_to_delete = st.selectbox(t("settings_current_users"), [""] + existing_users)
-                if user_to_delete and st.button(f"🗑 {user_to_delete}", use_container_width=True):
+                if user_to_delete and st.button(f"🗑 {user_to_delete}", use_container_width=True, type="tertiary"):
                     manager.remove_user(user_to_delete)
                     st.success("✅")
                     time.sleep(0.5)
@@ -746,7 +758,7 @@ def render_settings_view():
             if existing_projects:
                 st.divider()
                 project_to_delete = st.selectbox(t("settings_current_projects"), [""] + existing_projects)
-                if project_to_delete and st.button(f"🗑 {project_to_delete}", use_container_width=True):
+                if project_to_delete and st.button(f"🗑 {project_to_delete}", use_container_width=True, type="tertiary"):
                     manager.remove_project(project_to_delete)
                     st.success("✅")
                     time.sleep(0.5)
@@ -766,15 +778,66 @@ def render_settings_view():
             if existing_tags:
                 st.divider()
                 tag_to_delete = st.selectbox(t("settings_current_tags"), [""] + existing_tags)
-                if tag_to_delete and st.button(f"🗑 {tag_to_delete}", use_container_width=True):
+                if tag_to_delete and st.button(f"🗑 {tag_to_delete}", use_container_width=True, type="tertiary"):
                     manager.remove_tag(tag_to_delete)
                     st.success("✅")
                     time.sleep(0.5)
                     st.rerun()
 
 
+def _inject_global_css():
+    st.markdown(
+        """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif !important;
+    }
+
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 2rem !important;
+    }
+
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        border-radius: 12px;
+        border: 1px solid #ebedf0;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+        background-color: #ffffff;
+        transition: all 0.2s ease;
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+        box-shadow: 0 6px 16px rgba(0,0,0,0.05);
+    }
+
+    div[data-testid="stButton"] button {
+        border-radius: 8px;
+        font-weight: 500;
+        text-transform: none !important;
+    }
+
+    div[data-baseweb="select"] > div {
+        border-radius: 8px;
+    }
+
+    h1 {
+        font-weight: 700 !important;
+        letter-spacing: -0.025em !important;
+    }
+    h2 {
+        font-weight: 600 !important;
+        letter-spacing: -0.02em !important;
+    }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+
 # --- Main App ---
 def main():
+    _inject_global_css()
     issues = manager.scan_all_issues()
     render_sidebar()
 

@@ -17,5 +17,11 @@
   },
   "fea_202602d204608_测试新问题": {
     "priority": "Low"
+  },
+  "optimization_template": {
+    "assignee": "",
+    "project": "",
+    "priority": "Low",
+    "tags": []
   }
 }
