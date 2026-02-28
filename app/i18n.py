@@ -60,8 +60,8 @@ _STRINGS: dict[str, dict[str, str]] = {
     "issue_btn_cancel_edit": {"zh": "取消编辑", "en": "Cancel Edit"},
     "issue_btn_edit": {"zh": "✏️ 编辑内容", "en": "✏️ Edit"},
     "issue_current_status": {"zh": "当前状态: {}", "en": "Current Status: {}"},
-    "issue_transition_to": {"zh": "流转到 ➔ {}", "en": "Move to ➔ {}"},
-    "issue_moved": {"zh": "已移动到 {} 目录", "en": "Moved to {} directory"},
+    "issue_transition_to": {"zh": "流转至 {}", "en": "Move to {}"},
+    "issue_moved": {"zh": "已流转至 {}", "en": "Moved to {}"},
     "issue_edit_content_label": {"zh": "Markdown 内容", "en": "Markdown Content"},
     "issue_btn_save": {"zh": "💾 保存更改", "en": "💾 Save Changes"},
     "issue_save_success": {"zh": "保存成功！", "en": "Saved successfully!"},
@@ -90,22 +90,22 @@ _STRINGS: dict[str, dict[str, str]] = {
     },
     "conflict_btn_reload": {"zh": "重新加载最新内容", "en": "Reload Latest Content"},
     # --- Dashboard ---
-    "dashboard_header": {"zh": "📊 数据看板", "en": "📊 Dashboard"},
-    "dashboard_total": {"zh": "总问题数", "en": "Total Issues"},
-    "dashboard_open": {"zh": "待处理 (OPEN)", "en": "Open"},
+    "dashboard_header": {"zh": "统计看板", "en": "Dashboard"},
+    "dashboard_total": {"zh": "问题总数", "en": "Total Issues"},
+    "dashboard_open": {"zh": "待处理", "en": "Open"},
     "dashboard_in_progress": {"zh": "处理中", "en": "In Progress"},
     "dashboard_fixed": {"zh": "已修复", "en": "Fixed"},
     "dashboard_closed": {"zh": "已关闭", "en": "Closed"},
     "dashboard_by_priority": {"zh": "按优先级分布", "en": "By Priority"},
-    "dashboard_by_type": {"zh": "按类型分布", "en": "By Type"},
-    "dashboard_recent": {"zh": "### 最近更新", "en": "### Recent Updates"},
+    "dashboard_by_type": {"zh": "分类占比", "en": "Type Distribution"},
+    "dashboard_recent": {"zh": "最近活跃", "en": "Recent Activity"},
     "dashboard_no_issues": {"zh": "暂无问题单", "en": "No issues yet"},
     # --- Batch ---
     "batch_header": {"zh": "⚡ 批量操作", "en": "⚡ Batch Operations"},
     "batch_selected": {"zh": "已选 {} 个问题", "en": "{} issues selected"},
-    "batch_status_label": {"zh": "批量流转到状态", "en": "Batch Move to Status"},
-    "batch_btn_apply": {"zh": "🚀 执行批量流转", "en": "🚀 Apply Batch Move"},
-    "batch_success": {"zh": "✅ 批量操作完成", "en": "✅ Batch operation complete"},
+    "batch_status_label": {"zh": "更新状态", "en": "Update Status"},
+    "batch_btn_apply": {"zh": "执行应用 (已选中 {} 个)", "en": "Apply ({} selected)"},
+    "batch_success": {"zh": "批量更新应用成功！", "en": "Batch update applied successfully!"},
     "batch_btn_clear": {"zh": "清空选择", "en": "Clear Selection"},
     "batch_btn_exit": {"zh": "退出批量模式", "en": "Exit Batch Mode"},
     # --- Index Page ---
@@ -162,35 +162,15 @@ _STRINGS: dict[str, dict[str, str]] = {
     "nav_settings": {"zh": "配置中心", "en": "Settings"},
     "nav_new_issue": {"zh": "➕ 新建问题单", "en": "➕ New Issue"},
     "nav_back": {"zh": "返回列表", "en": "Back to List"},
-
     # --- Status Native Translations ---
     "status_open": {"zh": "待处理", "en": "Open"},
     "status_in-progress": {"zh": "进行中", "en": "In Progress"},
     "status_fixed": {"zh": "已修复", "en": "Fixed"},
     "status_closed": {"zh": "已关闭", "en": "Closed"},
-
     # --- Data View & Toolbar ---
-    "batch_status_label": {"zh": "更新状态", "en": "Update Status"},
-    "batch_btn_apply": {"zh": "执行应用 (已选中 {} 个)", "en": "Apply ({} selected)"},
-    "batch_success": {"zh": "批量更新应用成功！", "en": "Batch update applied successfully!"},
     "page_prev": {"zh": "上一页", "en": "Prev"},
     "page_next": {"zh": "下一页", "en": "Next"},
     "page_indicator": {"zh": "第 {} / {} 页", "en": "Page {} of {}"},
-
-    # --- Dashboard Native ---
-    "dashboard_header": {"zh": "统计看板", "en": "Dashboard"},
-    "dashboard_total": {"zh": "问题总数", "en": "Total Issues"},
-    "dashboard_open": {"zh": "待处理", "en": "Open"},
-    "dashboard_in_progress": {"zh": "处理中", "en": "In Progress"},
-    "dashboard_fixed": {"zh": "已修复", "en": "Fixed"},
-    "dashboard_closed": {"zh": "已关闭", "en": "Closed"},
-    "dashboard_recent": {"zh": "最近活跃", "en": "Recent Activity"},
-    "dashboard_by_type": {"zh": "分类占比", "en": "Type Distribution"},
-
-    # --- Issue Detail enhancements ---
-    "issue_transition_to": {"zh": "流转至 {}", "en": "Move to {}"},
-    "issue_moved": {"zh": "已流转至 {}", "en": "Moved to {}"},
-
     # --- 🚀 新建问题单 button fix ---
     "create_btn_submit_short": {"zh": "🚀 创建问题", "en": "🚀 Create Issue"},
 }
