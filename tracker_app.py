@@ -1,5 +1,6 @@
 import time
 from datetime import datetime
+import math
 
 import streamlit as st
 
@@ -7,8 +8,12 @@ from app.i18n import LANG_OPTIONS, t
 from app.managers.fs_issue_manager import FileModifiedExternallyError, FileSystemIssueManager
 
 # --- Page Config ---
-st.set_page_config(page_title=t("app_title"), page_icon="📁", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title=t("app_title"), page_icon="📁", layout="wide", initial_sidebar_state="expanded"
+)
 
+# --- Constants ---
+PAGE_SIZE = 15
 
 # --- Initialize Manager & State ---
 @st.cache_resource
@@ -18,16 +23,50 @@ def get_manager():
 
 manager = get_manager()
 
+# Core State
+if "current_view" not in st.session_state:
+    st.session_state.current_view = "index"  # 'index', 'all_issues', 'create', 'settings', 'issue_detail'
 if "selected_issue_id" not in st.session_state:
     st.session_state.selected_issue_id = None
 if "edit_mode" not in st.session_state:
     st.session_state.edit_mode = False
-if "show_create" not in st.session_state:
-    st.session_state.show_create = False
-if "show_dashboard" not in st.session_state:
-    st.session_state.show_dashboard = False
-if "show_settings" not in st.session_state:
-    st.session_state.show_settings = False
+
+# Filter State
+if "search_query" not in st.session_state:
+    st.session_state.search_query = ""
+if "filter_status" not in st.session_state:
+    st.session_state.filter_status = "All"  # "All" or native status
+if "filter_tag" not in st.session_state:
+    st.session_state.filter_tag = "All"
+if "filter_assignee" not in st.session_state:
+    st.session_state.filter_assignee = "All"
+if "filter_project" not in st.session_state:
+    st.session_state.filter_project = "All"
+if "sort_by" not in st.session_state:
+    st.session_state.sort_by = "Time (Newest)"
+
+# Pagination State
+if "current_page" not in st.session_state:
+    st.session_state.current_page = 1
+
+# Batch Mode State
+if "batch_mode" not in st.session_state:
+    st.session_state.batch_mode = False
+if "batch_selected" not in st.session_state:
+    st.session_state.batch_selected = set()
+
+if "_lang" not in st.session_state:
+    # Let i18n get_lang handle this, but initialize default
+    st.session_state._lang = "en"
+
+
+def nav_to(view_name, issue_id=None):
+    st.session_state.current_view = view_name
+    st.session_state.selected_issue_id = issue_id
+    st.session_state.edit_mode = False
+    st.session_state.batch_mode = False
+    st.session_state.batch_selected = set()
+    st.rerun()
 
 
 # --- Helper Functions ---
@@ -42,11 +81,60 @@ def get_status_color(status):
 
 # --- UI Components ---
 
+def render_breadcrumb(path_tuples):
+    """
+    Renders a breadcrumb: [(label, target_view, target_id), ...]
+    Using st.columns and markdown to ensure it looks tight without relying on unsupported st.button flags.
+    """
+    html = "<div style='margin-bottom: 20px; font-size: 0.9em; color: gray;'>"
+    parts = []
+    # We just render static breadcrumb text to avoid unsupported Streamlit button issues.
+    # The dedicated back button handles the actual navigation.
+    for i, (label, view, target_id) in enumerate(path_tuples):
+        parts.append(f"<span>{label}</span>")
+    html += " › ".join(parts)
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
 
-def render_sidebar(issues):  # noqa: C901
+
+def render_sidebar():
     st.sidebar.title(t("sidebar_title"))
 
-    # Language selector (top of sidebar)
+    st.sidebar.markdown("<br>", unsafe_allow_html=True)
+    if st.sidebar.button(t("nav_new_issue"), use_container_width=True, type="primary"):
+        nav_to("create")
+
+    st.sidebar.markdown("### " + t("nav_main_views"))
+
+    if st.sidebar.button("🏠 " + t("nav_dashboard"), use_container_width=True, type="primary" if st.session_state.current_view == "index" else "secondary"):
+        nav_to("index")
+
+    if st.sidebar.button("📋 " + t("nav_all_issues"), use_container_width=True, type="primary" if st.session_state.current_view == "all_issues" else "secondary"):
+        st.session_state.filter_status = "All"
+        st.session_state.current_page = 1
+        nav_to("all_issues")
+
+    st.sidebar.markdown("### " + t("nav_quick_filters"))
+    # Quick filter buttons
+    for status in manager.VALID_STATUSES:
+        icon = {"OPEN": "🔴", "IN-PROGRESS": "🟠", "FIXED": "🟢", "CLOSED": "⚪"}.get(status.upper(), "👉")
+        # translated status
+        label = f"{icon} {t('status_' + status.lower(), None) if t('status_' + status.lower()) != 'status_' + status.lower() else status.upper()}"
+        is_active = st.session_state.current_view == "all_issues" and st.session_state.filter_status == status
+        if st.sidebar.button(label, use_container_width=True, type="primary" if is_active else "secondary"):
+            st.session_state.filter_status = status
+            st.session_state.current_page = 1
+            nav_to("all_issues")
+
+    st.sidebar.markdown("### " + t("nav_system"))
+    if st.sidebar.button("⚙️ " + t("nav_settings"), use_container_width=True, type="primary" if st.session_state.current_view == "settings" else "secondary"):
+        nav_to("settings")
+
+    # Spacer
+    for _ in range(5):
+        st.sidebar.markdown("<br>", unsafe_allow_html=True)
+
+    # Language Selector at bottom
     lang_choice = st.sidebar.selectbox(
         t("lang_selector_label"),
         list(LANG_OPTIONS.keys()),
@@ -59,144 +147,159 @@ def render_sidebar(issues):  # noqa: C901
         st.query_params["lang"] = new_lang
         st.rerun()
 
-    with st.sidebar.expander(t("quick_actions"), expanded=False):
-        if st.button(t("btn_new_issue"), use_container_width=True, type="primary"):
-            st.session_state.show_create = True
-            st.session_state.show_dashboard = False
-            st.session_state.show_settings = False
-            st.session_state.selected_issue_id = None
-            st.session_state.edit_mode = False
-            st.rerun()
 
-        if st.button(t("btn_dashboard"), use_container_width=True):
-            st.session_state.show_dashboard = True
-            st.session_state.show_create = False
-            st.session_state.show_settings = False
-            st.session_state.selected_issue_id = None
-            st.rerun()
+def render_all_issues(issues):
+    render_breadcrumb([(t("nav_dashboard"), "index", None), (t("nav_all_issues"), "all_issues", None)])
+    st.header(t("nav_all_issues"))
 
-        if st.button(t("btn_settings"), use_container_width=True):
-            st.session_state.show_settings = True
-            st.session_state.show_dashboard = False
-            st.session_state.show_create = False
-            st.session_state.selected_issue_id = None
-            st.rerun()
+    # Toolbar
+    with st.container(border=True):
+        col_s, col_st, col_as, col_pr, col_tg, col_sort = st.columns(6)
+        with col_s:
+            search_query = st.text_input("🔍 " + t("filter_keyword_label"), value=st.session_state.search_query, label_visibility="collapsed", placeholder=t("filter_keyword_placeholder")).lower()
+        with col_st:
+            filter_status = st.selectbox(t("filter_status"), ["All"] + manager.VALID_STATUSES, index=0 if st.session_state.filter_status == "All" else manager.VALID_STATUSES.index(st.session_state.filter_status) + 1, label_visibility="collapsed")
+        with col_as:
+            all_users = manager.get_users()
+            filter_assignee = st.selectbox(t("filter_assignee"), ["All"] + all_users, index=0 if st.session_state.filter_assignee == "All" else all_users.index(st.session_state.filter_assignee) + 1, label_visibility="collapsed")
+        with col_pr:
+            all_projects = manager.get_projects()
+            filter_project = st.selectbox(t("filter_project"), ["All"] + all_projects, index=0 if st.session_state.filter_project == "All" else all_projects.index(st.session_state.filter_project) + 1, label_visibility="collapsed")
+        with col_tg:
+            all_tags = manager.get_tags()
+            filter_tag = st.selectbox(t("filter_tags"), ["All"] + all_tags, index=0 if st.session_state.filter_tag == "All" else all_tags.index(st.session_state.filter_tag) + 1, label_visibility="collapsed")
+        with col_sort:
+            sort_by = st.selectbox(t("sort_by"), ["Time (Newest)", "Time (Oldest)", "Time (Updated)"], label_visibility="collapsed")
 
-    st.sidebar.divider()
+    # Detect filter change to reset pagination
+    filter_changed = (
+        search_query != st.session_state.search_query or
+        filter_status != st.session_state.filter_status or
+        filter_assignee != st.session_state.filter_assignee or
+        filter_project != st.session_state.filter_project or
+        filter_tag != st.session_state.filter_tag or
+        sort_by != st.session_state.sort_by
+    )
 
-    st.sidebar.markdown(f"##### {t('filter_search_header')}")
-    search_query = st.sidebar.text_input(t("filter_keyword_label"), placeholder=t("filter_keyword_placeholder")).lower()
+    st.session_state.search_query = search_query
+    st.session_state.filter_status = filter_status
+    st.session_state.filter_assignee = filter_assignee
+    st.session_state.filter_project = filter_project
+    st.session_state.filter_tag = filter_tag
+    st.session_state.sort_by = sort_by
 
-    with st.sidebar.expander(t("filter_advanced"), expanded=False):
-        status_filter = st.multiselect(t("filter_status"), manager.VALID_STATUSES, default=manager.VALID_STATUSES)
+    if filter_changed:
+        st.session_state.current_page = 1
 
-        all_tags = manager.get_tags()
-        tag_filter = st.multiselect(t("filter_tags"), all_tags)
-        tag_or_label = t("filter_tag_or")
-        tag_and_label = t("filter_tag_and")
-        tag_mode = st.radio(t("filter_tag_mode"), [tag_or_label, tag_and_label], horizontal=True)
-
-        all_users = manager.get_users()
-        assignee_filter = st.multiselect(t("filter_assignee"), all_users)
-
-        all_projects = manager.get_projects()
-        project_filter = st.multiselect(t("filter_project"), all_projects)
-
-    st.sidebar.markdown(f"##### {t('display_settings')}")
-    sort_newest = t("sort_newest")
-    sort_oldest = t("sort_oldest")
-    sort_updated = t("sort_updated")
-    sort_by = st.sidebar.selectbox(t("sort_by"), [sort_newest, sort_oldest, sort_updated])
-
-    st.sidebar.divider()
-    batch_mode = st.sidebar.toggle(t("batch_mode"), key="batch_mode_toggle")
-    if "batch_selected" not in st.session_state:
-        st.session_state.batch_selected = set()
-
-    # 应用过滤与排序
-    filtered_issues = []
+    # Apply filters
+    filtered = []
     for issue in issues:
-        # 1. 状态匹配
-        if issue["status"].lower() not in [s.lower() for s in status_filter]:
+        if filter_status != "All" and issue.get("status", "").lower() != filter_status.lower():
             continue
-        # 2. 负责人匹配
-        if assignee_filter and issue.get("assignee") not in assignee_filter:
+        if filter_assignee != "All" and issue.get("assignee") != filter_assignee:
             continue
-        # 3. 项目匹配
-        if project_filter and issue.get("project") not in project_filter:
+        if filter_project != "All" and issue.get("project") != filter_project:
             continue
-        # 4. 标签匹配
-        if tag_filter:
-            issue_tags = issue.get("tags", [])
-            if tag_mode == tag_or_label:
-                if not any(t_item in issue_tags for t_item in tag_filter):
-                    continue
-            else:  # AND
-                if not all(t_item in issue_tags for t_item in tag_filter):
-                    continue
-        # 5. 搜索匹配
-        if search_query:
-            if search_query not in issue["id"].lower() and search_query not in issue["title"].lower():
-                continue
-        filtered_issues.append(issue)
+        if filter_tag != "All" and filter_tag not in issue.get("tags", []):
+            continue
+        if search_query and search_query not in issue["title"].lower() and search_query not in issue["id"].lower():
+            continue
+        filtered.append(issue)
 
-    # 排序
-    if sort_by == sort_newest:
-        filtered_issues.sort(key=lambda x: x["created_at"], reverse=True)
-    elif sort_by == sort_oldest:
-        filtered_issues.sort(key=lambda x: x["created_at"], reverse=False)
-    elif sort_by == sort_updated:
-        filtered_issues.sort(key=lambda x: x["last_modified"], reverse=True)
+    # Sort
+    if sort_by == "Time (Newest)":
+        filtered.sort(key=lambda x: x["created_at"], reverse=True)
+    elif sort_by == "Time (Oldest)":
+        filtered.sort(key=lambda x: x["created_at"], reverse=False)
+    else:
+        filtered.sort(key=lambda x: x["last_modified"], reverse=True)
 
-    # 渲染文件树/列表
-    st.sidebar.subheader(f"{t('issue_list')} ({len(filtered_issues)})")
+    # Batch Actions
+    col_batch, col_batch_actions = st.columns([1, 4])
+    with col_batch:
+        st.session_state.batch_mode = st.toggle(t("batch_mode"), value=st.session_state.batch_mode)
+    
+    if st.session_state.batch_mode:
+        with col_batch_actions:
+            sel_count = len(st.session_state.batch_selected)
+            if sel_count > 0:
+                bc1, bc2, bc3 = st.columns(3)
+                with bc1:
+                    new_status = st.selectbox(t("batch_status_label"), ["--"] + manager.VALID_STATUSES, label_visibility="collapsed")
+                with bc2:
+                    new_assignee = st.selectbox(t("meta_assignee"), ["--"] + all_users, label_visibility="collapsed")
+                with bc3:
+                    if st.button(t("batch_btn_apply").format(sel_count), type="primary"):
+                        updates = {}
+                        if new_assignee != "--": updates["assignee"] = new_assignee
+                        if updates: manager.batch_update_metadata(list(st.session_state.batch_selected), updates)
+                        if new_status != "--": manager.batch_change_status(list(st.session_state.batch_selected), new_status)
+                        st.session_state.batch_selected = set()
+                        st.success(t("batch_success"))
+                        time.sleep(0.5)
+                        st.rerun()
 
-    # Group by status to display nicely
-    grouped = {
-        s: []
-        for s in [
-            sf.upper()
-            for sf in manager.VALID_STATUSES
-            if sf in status_filter or sf.lower() in [f.lower() for f in status_filter]
-        ]
-    }
-    for issue in filtered_issues:
-        grouped.get(issue["status"].upper(), []).append(issue)
+    st.divider()
 
-    for status, status_issues in grouped.items():
-        if status_issues:
-            is_in_progress = status.upper() == "IN-PROGRESS"
-            with st.sidebar.expander(f"📂 {status} ({len(status_issues)})", expanded=is_in_progress):
-                for issue in status_issues:
-                    btn_label = f"[{issue['type']}] {issue['title']}"
+    # Pagination Logic
+    total_issues = len(filtered)
+    total_pages = max(1, math.ceil(total_issues / PAGE_SIZE))
+    if st.session_state.current_page > total_pages:
+        st.session_state.current_page = total_pages
 
-                    # 当前选中的高亮
-                    is_selected = st.session_state.selected_issue_id == issue["id"]
+    start_idx = (st.session_state.current_page - 1) * PAGE_SIZE
+    end_idx = start_idx + PAGE_SIZE
+    page_issues = filtered[start_idx:end_idx]
 
-                    if batch_mode:
-                        is_checked = issue["id"] in st.session_state.batch_selected
-                        if st.checkbox(
-                            f"{issue['type']} | {issue['title']}", key=f"batch_chk_{issue['id']}", value=is_checked
-                        ):
+    # Data List Rendering
+    if not page_issues:
+        st.info("👻 " + t("index_no_issues"))
+    else:
+        for issue in page_issues:
+            with st.container(border=True):
+                c0, c1, c2, c3, c4 = st.columns([0.5, 4, 1.5, 1.5, 1])
+                with c0:
+                    if st.session_state.batch_mode:
+                        is_sel = issue["id"] in st.session_state.batch_selected
+                        if st.checkbox(" ", key=f"chk_{issue['id']}", value=is_sel, label_visibility="collapsed"):
                             st.session_state.batch_selected.add(issue["id"])
                         else:
                             st.session_state.batch_selected.discard(issue["id"])
                     else:
-                        if st.button(
-                            btn_label,
-                            key=f"nav_{issue['id']}",
-                            use_container_width=True,
-                            type="primary" if is_selected else "secondary",
-                        ):
-                            st.session_state.selected_issue_id = issue["id"]
-                            st.session_state.edit_mode = False
-                            st.session_state.show_create = False
-                            st.session_state.show_dashboard = False
-                            st.session_state.show_settings = False
-                            st.rerun()
+                        st.markdown(f"**[{issue['type']}]**")
+                with c1:
+                    st.markdown(f"**{issue['title']}**")
+                    tags_html = " ".join([f"`{t}`" for t in issue.get("tags", [])])
+                    st.caption(f"{issue['id']} {tags_html}")
+                with c2:
+                    color = get_status_color(issue["status"].upper())
+                    st.markdown(f":{color}[**{issue['status'].upper()}**]")
+                with c3:
+                    assignee = issue.get("assignee") or "—"
+                    st.markdown(f"👤 {assignee}")
+                    st.caption(format_timestamp(issue["last_modified"]))
+                with c4:
+                    if st.button("➔", key=f"navbtn_{issue['id']}", use_container_width=True):
+                        nav_to("issue_detail", issue["id"])
+
+    # Pagination widget
+    p1, p2, p3 = st.columns([1, 2, 1])
+    with p1:
+        if st.session_state.current_page > 1:
+            if st.button("⬅ " + t("page_prev"), use_container_width=True):
+                st.session_state.current_page -= 1
+                st.rerun()
+    with p2:
+        st.markdown(f"<div style='text-align: center; padding-top: 5px;'>{t('page_indicator').format(st.session_state.current_page, total_pages)} ({total_issues}总计)</div>", unsafe_allow_html=True)
+    with p3:
+        if st.session_state.current_page < total_pages:
+            if st.button(t("page_next") + " ➡", use_container_width=True):
+                st.session_state.current_page += 1
+                st.rerun()
 
 
 def render_create_view():
+    render_breadcrumb([(t("nav_dashboard"), "index", None), (t("create_header"), "create", None)])
     st.header(t("create_header"))
 
     col1, col2 = st.columns([1, 1])
@@ -226,28 +329,21 @@ def render_create_view():
         if st.button(t("create_btn_submit"), type="primary"):
             if title:
                 extra = {}
-                if assignee:
-                    extra["assignee"] = assignee
-                if project:
-                    extra["project"] = project
-                if priority:
-                    extra["priority"] = priority
-                if selected_tags:
-                    extra["tags"] = selected_tags
+                if assignee: extra["assignee"] = assignee
+                if project: extra["project"] = project
+                if priority: extra["priority"] = priority
+                if selected_tags: extra["tags"] = selected_tags
 
                 new_id = manager.create_issue(issue_type, title, content, extra)
-                st.success(t("create_success", None, new_id))
-                st.session_state.show_create = False
-                st.session_state.selected_issue_id = new_id
-                time.sleep(1)
-                st.rerun()
+                st.success(t("create_success").format(new_id))
+                time.sleep(0.5)
+                nav_to("issue_detail", new_id)
             else:
                 st.error(t("create_error_title"))
 
     with col2:
         if st.button(t("create_btn_cancel")):
-            st.session_state.show_create = False
-            st.rerun()
+            nav_to("index")
 
 
 @st.dialog(t("conflict_title"))
@@ -259,66 +355,66 @@ def show_conflict_dialog(error_msg):
         st.rerun()
 
 
-def render_issue_view(issue_id):  # noqa: C901
+def render_issue_view(issue_id):
     try:
         issue = manager.get_issue(issue_id)
     except Exception as e:
-        st.error(t("issue_load_error", None, e))
+        st.error(t("issue_load_error").format(e))
         if st.button(t("issue_btn_back")):
-            st.session_state.selected_issue_id = None
-            st.rerun()
+            nav_to("all_issues")
         return
 
-    # 顶栏区 (操作区)
-    col1, col_del, col_edit = st.columns([6, 1, 1])
-    with col1:
+    render_breadcrumb([(t("nav_dashboard"), "index", None), (t("nav_all_issues"), "all_issues", None), (f"[{issue['type']}] {issue['title']}", "issue_detail", issue_id)])
+
+    col_back, col_title = st.columns([1, 11])
+    with col_back:
+        if st.button("⬅ " + t("nav_back")):
+            nav_to("all_issues")
+    with col_title:
         st.markdown(f"## `[{issue['type']}]` {issue['title']}")
 
-        tags_html = ""
-        current_tags = issue.get("tags", [])
-        if current_tags:
-            tags_html = " | ".join([f"🏷️ `{tag}`" for tag in current_tags])
-            st.caption(
-                f"{t('issue_path_label', None, issue['filepath'], format_timestamp(issue['last_modified']))} | {tags_html}"
-            )
-        else:
-            st.caption(t("issue_path_label", None, issue["filepath"], format_timestamp(issue["last_modified"])))
+    tags_html = ""
+    current_tags = issue.get("tags", [])
+    if current_tags:
+        tags_html = " | ".join([f"🏷️ `{tag}`" for tag in current_tags])
+        st.caption(f"{t('issue_path_label').format(issue['filepath'], format_timestamp(issue['last_modified']))} | {tags_html}")
+    else:
+        st.caption(t("issue_path_label").format(issue['filepath'], format_timestamp(issue['last_modified'])))
 
-    with col_del:
+    # 顶栏区 (操作区)
+    st.write("---")
+    c_status, c_del, c_edit = st.columns([8, 2, 2])
+    with c_status:
+        # Status transition buttons row
+        cols = st.columns(len(manager.VALID_STATUSES))
+        for i, status in enumerate(manager.VALID_STATUSES):
+            with cols[i]:
+                if status.lower() == issue["status"].lower():
+                    st.markdown(f"**:{get_status_color(issue['status'].upper())}[✓ {status.upper()}]**")
+                else:
+                    if st.button(t("issue_transition_to").format(status.upper()), key=f"mv_{status}"):
+                        if manager.change_status(issue_id, status.lower()):
+                            st.toast(t("issue_moved").format(status))
+                            time.sleep(0.5)
+                            st.rerun()
+
+    with c_del:
         if st.checkbox(t("issue_confirm_delete"), key=f"chk_del_{issue_id}"):
             if st.button(t("issue_btn_delete"), type="primary"):
                 manager.delete_issue(issue_id)
-                st.session_state.selected_issue_id = None
-                st.session_state.edit_mode = False
                 st.success(t("issue_delete_success"))
-                time.sleep(0.8)
-                st.rerun()
+                time.sleep(0.5)
+                nav_to("all_issues")
 
-    with col_edit:
+    with c_edit:
         if st.session_state.edit_mode:
-            if st.button(t("issue_btn_cancel_edit")):
+            if st.button(t("issue_btn_cancel_edit"), use_container_width=True):
                 st.session_state.edit_mode = False
                 st.rerun()
         else:
-            if st.button(t("issue_btn_edit")):
+            if st.button(t("issue_btn_edit"), use_container_width=True):
                 st.session_state.edit_mode = True
                 st.rerun()
-
-    # 状态转移按钮区
-    st.write("---")
-    cols = st.columns(len(manager.VALID_STATUSES))
-    for i, status in enumerate(manager.VALID_STATUSES):
-        with cols[i]:
-            if status.lower() == issue["status"].lower():
-                st.markdown(
-                    f"**:{get_status_color(issue['status'].upper())}[{t('issue_current_status', None, status.upper())}]**"
-                )
-            else:
-                if st.button(t("issue_transition_to", None, status.upper()), key=f"mv_{status}"):
-                    if manager.change_status(issue_id, status.lower()):
-                        st.success(t("issue_moved", None, status))
-                        time.sleep(0.5)
-                        st.rerun()
 
     st.write("---")
 
@@ -340,47 +436,44 @@ def render_issue_view(issue_id):  # noqa: C901
                 except FileModifiedExternallyError as e:
                     show_conflict_dialog(str(e))
         else:
-            # === 阅读模式 ===
+            # 阅读模式
             st.markdown(issue["content"])
-
             st.divider()
 
-            # --- Quick Attachments ---
-            uploaded_file = st.file_uploader(t("issue_upload_label"), key="file_uploader")
-            if uploaded_file is not None:
-                attachments_dir = manager.base_dir / "attachments"
-                attachments_dir.mkdir(exist_ok=True)
+            # Attachments & Comments
+            with st.expander("📎 / 💬 Attachment & Comment"):
+                uploaded_file = st.file_uploader(t("issue_upload_label"), key="file_uploader")
+                if uploaded_file is not None:
+                    attachments_dir = manager.base_dir / "attachments"
+                    attachments_dir.mkdir(exist_ok=True)
+                    safe_name = f"{int(time.time())}_{uploaded_file.name}"
+                    file_path = attachments_dir / safe_name
+                    file_path.write_bytes(uploaded_file.getbuffer())
 
-                safe_name = f"{int(time.time())}_{uploaded_file.name}"
-                file_path = attachments_dir / safe_name
-                with open(file_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+                    if uploaded_file.type.startswith("image/"):
+                        attachment_md = f"\n\n{t('attach_img_md').format(uploaded_file.name, safe_name)}"
+                    else:
+                        attachment_md = f"\n\n{t('attach_link_md').format(uploaded_file.name, safe_name)}"
 
-                if uploaded_file.type.startswith("image/"):
-                    attachment_md = f"\n\n{t('attach_img_md', None, uploaded_file.name, safe_name)}"
-                else:
-                    attachment_md = f"\n\n{t('attach_link_md', None, uploaded_file.name, safe_name)}"
-
-                try:
-                    manager.save_issue_content(issue_id, issue["content"] + attachment_md, issue["last_modified"])
-                    st.success(t("issue_upload_success"))
-                    time.sleep(1)
-                    st.rerun()
-                except FileModifiedExternallyError as e:
-                    show_conflict_dialog(str(e))
-
-            # --- Quick Comments ---
-            new_comment = st.text_area(t("issue_comment_label"), placeholder=t("issue_comment_placeholder"), height=100)
-            if st.button(t("issue_btn_comment")):
-                if new_comment.strip():
-                    comment_text = f"\n\n{t('comment_header_md', None, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), new_comment.strip())}"
                     try:
-                        manager.save_issue_content(issue_id, issue["content"] + comment_text, issue["last_modified"])
-                        st.success(t("issue_comment_success"))
-                        time.sleep(0.5)
+                        manager.save_issue_content(issue_id, issue["content"] + attachment_md, issue["last_modified"])
+                        st.success(t("issue_upload_success"))
+                        time.sleep(1)
                         st.rerun()
                     except FileModifiedExternallyError as e:
                         show_conflict_dialog(str(e))
+
+                new_comment = st.text_area(t("issue_comment_label"), placeholder=t("issue_comment_placeholder"), height=100)
+                if st.button(t("issue_btn_comment")):
+                    if new_comment.strip():
+                        comment_text = f"\n\n{t('comment_header_md').format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), new_comment.strip())}"
+                        try:
+                            manager.save_issue_content(issue_id, issue["content"] + comment_text, issue["last_modified"])
+                            st.success(t("issue_comment_success"))
+                            time.sleep(0.5)
+                            st.rerun()
+                        except FileModifiedExternallyError as e:
+                            show_conflict_dialog(str(e))
 
     # 元数据侧边栏
     with col_meta:
@@ -389,50 +482,31 @@ def render_issue_view(issue_id):  # noqa: C901
 
             users = [""] + manager.get_users()
             current_assignee = issue.get("assignee", "")
-            if current_assignee and current_assignee not in users:
-                users.append(current_assignee)
+            if current_assignee and current_assignee not in users: users.append(current_assignee)
 
             projects = [""] + manager.get_projects()
             current_project = issue.get("project", "")
-            if current_project and current_project not in projects:
-                projects.append(current_project)
+            if current_project and current_project not in projects: projects.append(current_project)
 
             available_tags = manager.get_tags()
             current_tags = issue.get("tags", [])
             for tag in current_tags:
-                if tag not in available_tags:
-                    available_tags.append(tag)
+                if tag not in available_tags: available_tags.append(tag)
 
-            assignee = st.selectbox(
-                t("meta_assignee"), users, index=users.index(current_assignee) if current_assignee in users else 0
-            )
-            project = st.selectbox(
-                t("meta_project"), projects, index=projects.index(current_project) if current_project in projects else 0
-            )
-
-            priority = st.selectbox(
-                t("meta_priority"),
-                ["Low", "Medium", "High", "Critical"],
-                index=(
-                    ["Low", "Medium", "High", "Critical"].index(issue.get("priority", "Low"))
-                    if issue.get("priority") in ["Low", "Medium", "High", "Critical"]
-                    else 0
-                ),
-            )
-
+            assignee = st.selectbox(t("meta_assignee"), users, index=users.index(current_assignee) if current_assignee in users else 0)
+            project = st.selectbox(t("meta_project"), projects, index=projects.index(current_project) if current_project in projects else 0)
+            priority = st.selectbox(t("meta_priority"), ["Low", "Medium", "High", "Critical"], index=(["Low", "Medium", "High", "Critical"].index(issue.get("priority", "Low")) if issue.get("priority", "Low") in ["Low", "Medium", "High", "Critical"] else 0))
             tags = st.multiselect(t("meta_tags"), available_tags, default=current_tags)
 
-            if st.button(t("meta_btn_update"), key="update_meta"):
-                manager.update_metadata(
-                    issue_id, {"assignee": assignee, "project": project, "priority": priority, "tags": tags}
-                )
+            if st.button(t("meta_btn_update"), key="update_meta", use_container_width=True):
+                manager.update_metadata(issue_id, {"assignee": assignee, "project": project, "priority": priority, "tags": tags})
                 st.toast(t("meta_update_success"))
                 time.sleep(0.5)
                 st.rerun()
 
 
 def render_dashboard(issues):
-    st.header(t("dashboard_header"))
+    st.header("🏠 " + t("dashboard_header"))
     st.divider()
 
     total = len(issues)
@@ -441,55 +515,59 @@ def render_dashboard(issues):
     fixed_count = len([i for i in issues if i["status"].lower() == "fixed"])
     closed_count = len([i for i in issues if i["status"].lower() == "closed"])
 
+    # High level metrics
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric(t("dashboard_total"), total)
-    col2.metric(t("dashboard_open"), open_count)
-    col3.metric(t("dashboard_in_progress"), inprog_count)
-    col4.metric(t("dashboard_fixed") + "/" + t("dashboard_closed"), fixed_count + closed_count)
+    with col1:
+        with st.container(border=True):
+            st.metric(t("dashboard_total"), total)
+    with col2:
+        with st.container(border=True):
+            st.metric("🔴 " + t("dashboard_open"), open_count)
+    with col3:
+        with st.container(border=True):
+            st.metric("🟠 " + t("dashboard_in_progress"), inprog_count)
+    with col4:
+        with st.container(border=True):
+            st.metric("🟢⚪ " + t("dashboard_fixed") + "/" + t("dashboard_closed"), fixed_count + closed_count)
 
     st.divider()
 
-    col_chart1, col_chart2 = st.columns(2)
-    with col_chart1:
+    col_left, col_right = st.columns([2, 1])
+    
+    with col_left:
+        st.subheader("🕑 " + t("dashboard_recent"))
+        recent_issues = sorted(issues, key=lambda x: x["last_modified"], reverse=True)[:10]
+
+        if not recent_issues:
+            st.info(t("index_no_issues"))
+        else:
+            for issue in recent_issues:
+                with st.container(border=True):
+                    c1, c2 = st.columns([4, 1])
+                    with c1:
+                        st.markdown(f"**[{issue['type']}]** {issue['title']}")
+                        assignee_display = issue.get("assignee") or "—"
+                        st.caption(f"{format_timestamp(issue['last_modified'])} | {assignee_display} | Status: {issue['status']}")
+                    with c2:
+                        if st.button("➔", key=f"d_nav_{issue['id']}", use_container_width=True):
+                            nav_to("issue_detail", issue["id"])
+
+    with col_right:
+        st.subheader("💡 " + t("index_quick_start"))
+        st.info(t("index_quick_start_content"))
+
+        st.divider()
         st.subheader(t("dashboard_by_type"))
-        type_counts: dict[str, int] = {}
+        type_counts = {}
         for i in issues:
             tp = i.get("type", "unknown").upper()
             type_counts[tp] = type_counts.get(tp, 0) + 1
         if type_counts:
             st.bar_chart(type_counts)
-        else:
-            st.info(t("dashboard_no_issues"))
-
-    with col_chart2:
-        st.subheader(t("dashboard_by_priority"))
-        user_counts: dict[str, int] = {}
-        for i in issues:
-            if i["status"].lower() not in ["fixed", "closed"]:
-                u = i.get("assignee", "Unassigned")
-                if not u:
-                    u = "Unassigned"
-                user_counts[u] = user_counts.get(u, 0) + 1
-        if user_counts:
-            st.bar_chart(user_counts)
-        else:
-            st.info(t("dashboard_no_issues"))
-
-    st.divider()
-    urgent_issues = [
-        i
-        for i in issues
-        if i.get("priority") in ["High", "Critical"] and i["status"].lower() not in ["fixed", "closed"]
-    ]
-    if urgent_issues:
-        for u in urgent_issues:
-            assignee_str = u.get("assignee", "—") or "—"
-            st.markdown(f"- 🔴 **[{u['type']}]** {u['title']} - *{assignee_str}* (Status: {u['status']})")
-    else:
-        st.success("✅")
 
 
 def render_settings_view():
+    render_breadcrumb([(t("nav_dashboard"), "index", None), (t("nav_settings"), "settings", None)])
     st.header(t("settings_header"))
     st.divider()
 
@@ -501,7 +579,7 @@ def render_settings_view():
             new_user = st.text_input(t("settings_add_user"), key="new_user_input")
             if st.button(t("settings_btn_add_user"), use_container_width=True) and new_user:
                 manager.add_user(new_user)
-                st.success(t("settings_user_added", None, new_user))
+                st.success(t("settings_user_added").format(new_user))
                 time.sleep(0.5)
                 st.rerun()
 
@@ -521,7 +599,7 @@ def render_settings_view():
             new_project = st.text_input(t("settings_add_project"), key="new_project_input")
             if st.button(t("settings_btn_add_project"), use_container_width=True) and new_project:
                 manager.add_project(new_project)
-                st.success(t("settings_project_added", None, new_project))
+                st.success(t("settings_project_added").format(new_project))
                 time.sleep(0.5)
                 st.rerun()
 
@@ -541,7 +619,7 @@ def render_settings_view():
             new_tag = st.text_input(t("settings_add_tag"), key="new_tag_input")
             if st.button(t("settings_btn_add_tag"), use_container_width=True) and new_tag:
                 manager.add_tag(new_tag)
-                st.success(t("settings_tag_added", None, new_tag))
+                st.success(t("settings_tag_added").format(new_tag))
                 time.sleep(0.5)
                 st.rerun()
 
@@ -556,121 +634,26 @@ def render_settings_view():
                     st.rerun()
 
 
-def render_batch_action_bar():
-    selected_ids = st.session_state.get("batch_selected", set())
-    if not selected_ids:
-        st.info("💡")
-        return
-
-    st.subheader(t("batch_selected", None, len(selected_ids)))
-
-    with st.container(border=True):
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            new_status = st.selectbox(t("batch_status_label"), ["--"] + manager.VALID_STATUSES)
-        with col2:
-            all_users = manager.get_users()
-            new_assignee = st.selectbox(t("meta_assignee"), ["--"] + all_users)
-        with col3:
-            all_projects = manager.get_projects()
-            new_project = st.selectbox(t("meta_project"), ["--"] + all_projects)
-        with col4:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(t("batch_btn_apply"), type="primary", use_container_width=True):
-                updates = {}
-                if new_assignee != "--":
-                    updates["assignee"] = new_assignee
-                if new_project != "--":
-                    updates["project"] = new_project
-
-                selected_list = list(selected_ids)
-                if updates:
-                    manager.batch_update_metadata(selected_list, updates)
-
-                if new_status != "--":
-                    manager.batch_change_status(selected_list, new_status)
-
-                st.success(t("batch_success"))
-                st.session_state.batch_selected = set()
-                time.sleep(1)
-                st.rerun()
-
-    if st.button(t("batch_btn_clear"), use_container_width=True):
-        st.session_state.batch_selected = set()
-        st.rerun()
-
-
-def render_index_page(issues):
-    st.title(f"📁 {t('index_header')}")
-    st.markdown("---")
-
-    total = len(issues)
-    open_count = len([i for i in issues if i["status"].lower() == "open"])
-    inprog_count = len([i for i in issues if i["status"].lower() == "in-progress"])
-
-    col_stat1, col_stat2, col_stat3 = st.columns(3)
-    with col_stat1:
-        st.metric(t("index_metric_total"), total)
-    with col_stat2:
-        st.metric(t("index_metric_open"), open_count)
-    with col_stat3:
-        st.metric(t("index_metric_progress"), inprog_count)
-
-    st.divider()
-
-    col_left, col_right = st.columns([2, 1])
-
-    with col_left:
-        st.subheader(t("index_recent_issues"))
-        recent_issues = sorted(issues, key=lambda x: x["last_modified"], reverse=True)[:10]
-
-        if not recent_issues:
-            st.info(t("index_no_issues"))
-        else:
-            for issue in recent_issues:
-                with st.container(border=True):
-                    c1, c2 = st.columns([4, 1])
-                    with c1:
-                        st.markdown(f"**[{issue['type']}]** {issue['title']}")
-                        assignee_display = issue.get("assignee") or "—"
-                        st.caption(f"{format_timestamp(issue['last_modified'])} | {assignee_display}")
-                    with c2:
-                        if st.button("🔍", key=f"index_{issue['id']}", use_container_width=True):
-                            st.session_state.selected_issue_id = issue["id"]
-                            st.session_state.edit_mode = False
-                            st.rerun()
-
-    with col_right:
-        st.subheader(t("index_quick_start"))
-        st.info(t("index_quick_start_content"))
-
-        st.divider()
-        if st.container(border=True).button(t("index_btn_goto_dashboard"), use_container_width=True):
-            st.session_state.show_dashboard = True
-            st.rerun()
-
-
 # --- Main App ---
 def main():
     issues = manager.scan_all_issues()
-    render_sidebar(issues)
+    render_sidebar()
 
-    # 优先处理批量操作视图
-    if st.session_state.get("batch_mode_toggle", False):
-        render_batch_action_bar()
-        return
+    state = st.session_state.current_view
 
-    if getattr(st.session_state, "show_dashboard", False):
+    if state == "index":
         render_dashboard(issues)
-    elif getattr(st.session_state, "show_settings", False):
-        render_settings_view()
-    elif st.session_state.show_create:
+    elif state == "all_issues":
+        render_all_issues(issues)
+    elif state == "create":
         render_create_view()
-    elif st.session_state.selected_issue_id:
+    elif state == "settings":
+        render_settings_view()
+    elif state == "issue_detail" and st.session_state.selected_issue_id:
         render_issue_view(st.session_state.selected_issue_id)
     else:
-        render_index_page(issues)
+        # Fallback
+        nav_to("index")
 
 
 if __name__ == "__main__":

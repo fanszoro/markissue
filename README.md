@@ -4,7 +4,7 @@
 
 **MarkIssue** is a lightweight, zero-database agile issue tracker built on Markdown files. It is designed for individuals and small teams who want the full power of modern issue management without the overhead of a database or server to maintain.
 
-[🚀 Live Demo](https://bf3tzdtgrlfvvhjche5nuf.streamlit.app/) • [中文说明 ↓](README-zh.md)
+[🚀 Live Demo](https://bf3tzdtgrlfvvhjche5nuf.streamlit.app/) • [中文说明 ↓](README.zh.md)
 
 ---
 
