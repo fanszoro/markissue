@@ -4,7 +4,8 @@ from datetime import datetime
 
 import streamlit as st
 
-from app.components.enhanced_header import render_enhanced_issue_header
+from app.components.enhanced_header import render_common_breadcrumb, render_enhanced_issue_header
+from app.components.markdown_renderer import render_markdown
 from app.i18n import LANG_OPTIONS, t
 from app.managers.fs_issue_manager import FileModifiedExternallyError, FileSystemIssueManager
 
@@ -66,6 +67,16 @@ def nav_to(view_name, issue_id=None):
     st.session_state.edit_mode = False
     st.session_state.batch_mode = False
     st.session_state.batch_selected = set()
+
+    # Sync to query params
+    st.query_params.clear()
+    params = {"view": view_name}
+    if issue_id:
+        params["issue"] = issue_id
+    if "_lang" in st.session_state:
+        params["lang"] = st.session_state._lang
+    st.query_params.update(params)
+
     st.rerun()
 
 
@@ -80,43 +91,6 @@ def get_status_color(status):
 
 
 # --- UI Components ---
-
-
-def render_breadcrumb(path_tuples):
-    """
-    Renders clickable breadcrumbs: [(label, target_view, target_id), ...]
-    Using st.columns.
-    """
-    total = len(path_tuples)
-    if total == 0:
-        return
-
-    weights = []
-    for i, _ in enumerate(path_tuples):
-        weights.append(3)
-        if i < total - 1:
-            weights.append(1)
-    weights.append(15)  # Pad end
-
-    cols = st.columns(weights)
-    for i, (label, view, target_id) in enumerate(path_tuples):
-        col_idx = i * 2
-        with cols[col_idx]:
-            if i == total - 1:
-                st.markdown(
-                    f"<span style='color: gray; font-size: 0.9em; line-height: 2.5;'>{label}</span>",
-                    unsafe_allow_html=True,
-                )
-            else:
-                if st.button(label, key=f"bc_{i}_{view}_{target_id}", type="tertiary", use_container_width=True):
-                    nav_to(view, target_id)
-
-        if i < total - 1:
-            with cols[col_idx + 1]:
-                st.markdown(
-                    "<div style='text-align: center; color: gray; font-size: 1.2rem; line-height: 1.8;'>›</div>",
-                    unsafe_allow_html=True,
-                )
 
 
 def render_sidebar():
@@ -356,8 +330,13 @@ def _render_pagination_controls(total_issues, total_pages):
 
 
 def render_all_issues(issues):
-    render_breadcrumb([(t("nav_dashboard"), "index", None), (t("nav_all_issues"), "all_issues", None)])
-    st.header(t("nav_all_issues"))
+    # Consistently styled breadcrumb
+    render_common_breadcrumb(
+        crumbs=[(t("nav_home"), "index", "🏠")],
+        current_label=t("nav_all_issues"),
+        current_icon="📋",
+        nav_fn=nav_to,
+    )
 
     filters = _render_all_issues_toolbar()
     filtered = _apply_issue_filters_and_sort(issues, filters)
@@ -411,8 +390,13 @@ def render_all_issues(issues):
 
 
 def render_create_view():
-    render_breadcrumb([(t("nav_dashboard"), "index", None), (t("create_header"), "create", None)])
-    st.header(t("create_header"))
+    # Consistently styled breadcrumb
+    render_common_breadcrumb(
+        crumbs=[(t("nav_home"), "index", "🏠")],
+        current_label=t("create_header"),
+        current_icon="➕",
+        nav_fn=nav_to,
+    )
 
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -471,28 +455,6 @@ def show_conflict_dialog(error_msg):
         st.rerun()
 
 
-def _render_issue_header(issue):
-    """Renders breadcrumbs and the issue title/basic info."""
-    render_breadcrumb(
-        [
-            (t("nav_dashboard"), "index", None),
-            (t("nav_all_issues"), "all_issues", None),
-            (f"[{issue['type']}] {issue['title']}", "issue_detail", issue["id"]),
-        ]
-    )
-
-    st.markdown(f"## 📄 `[{issue['type']}]` {issue['title']}")
-
-    current_tags = issue.get("tags", [])
-    if current_tags:
-        tags_html = " | ".join([f"🏷️ `{tag}`" for tag in current_tags])
-        st.caption(
-            f"{t('issue_path_label').format(issue['filepath'], format_timestamp(issue['last_modified']))} | {tags_html}"
-        )
-    else:
-        st.caption(t("issue_path_label").format(issue["filepath"], format_timestamp(issue["last_modified"])))
-
-
 def _render_status_transitions(issue_id, issue_status):
     """Renders the row of status transition buttons with arrows."""
     statuses = manager.VALID_STATUSES
@@ -541,8 +503,7 @@ def _render_issue_content(issue):
             except FileModifiedExternallyError as e:
                 show_conflict_dialog(str(e))
     else:
-        st.markdown(issue["content"])
-        st.divider()
+        render_markdown(issue["content"])
 
 
 def _render_issue_attachments_and_comments(issue):
@@ -639,7 +600,7 @@ def render_issue_view(issue_id):
         return
 
     # 使用增强的头部组件
-    render_enhanced_issue_header(issue, manager)
+    render_enhanced_issue_header(issue, manager, nav_to)
 
     # 主体内容区
     col_main, col_meta = st.columns([3, 1])
@@ -718,8 +679,13 @@ def render_dashboard(issues):
 
 
 def render_settings_view():
-    render_breadcrumb([(t("nav_dashboard"), "index", None), (t("nav_settings"), "settings", None)])
-    st.header(t("settings_header"))
+    # Consistently styled breadcrumb
+    render_common_breadcrumb(
+        crumbs=[(t("nav_home"), "index", "🏠")],
+        current_label=t("nav_settings"),
+        current_icon="⚙️",
+        nav_fn=nav_to,
+    )
     st.divider()
 
     col1, col2, col3 = st.columns(3)
@@ -821,13 +787,150 @@ def _inject_global_css():
         border-radius: 8px;
     }
 
+    section[data-testid="stSidebar"] [data-testid="stButton"] button {
+        font-weight: 600 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.025em !important;
+        font-size: 0.85rem !important;
+    }
+
     h1 {
         font-weight: 700 !important;
         letter-spacing: -0.025em !important;
     }
-    h2 {
+    /* Sidebar Overall Layout */
+    section[data-testid="stSidebar"] > div:first-child {
+        height: 100vh !important;
+        display: flex;
+        flex-direction: column;
+        padding-bottom: 2rem !important;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+        gap: 0.6rem !important;
+        padding-left: 1.25rem !important;
+        padding-right: 1.25rem !important;
+        padding-top: 1.5rem !important;
+    }
+
+    /* Sidebar Button Common Styles */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] div[data-testid="stButton"] button {
+        border-radius: 12px !important;
+        text-align: center !important;
+        justify-content: center !important;
+        padding: 10px 16px !important;
+        margin-bottom: 2px !important;
+        width: 100% !important;
+        background-color: transparent !important;
+        border: 1px solid rgba(128, 128, 128, 0.15) !important;
+        display: flex !important;
+        align-items: center !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        min-height: 44px !important;
+    }
+
+    /* Force internal alignment and color */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] div[data-testid="stButton"] button div[data-testid="stMarkdownContainer"] p {
+        text-align: center !important;
+        margin: 0 !important;
+        width: 100% !important;
         font-weight: 600 !important;
-        letter-spacing: -0.02em !important;
+        font-size: 0.95rem !important;
+        letter-spacing: 0.02em !important;
+    }
+
+    /* Active/Colored Buttons visibility */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] div[data-testid="stButton"] button[kind="primary"] {
+        color: #ffffff !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] div[data-testid="stButton"] button[kind="primary"] div[data-testid="stMarkdownContainer"] p {
+        color: #ffffff !important;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] div[data-testid="stButton"] button:hover {
+        background-color: rgba(0, 0, 0, 0.04) !important;
+        border-color: rgba(128, 128, 128, 0.3) !important;
+    }
+
+    /* Target Buttons by Position for Semantic Colors */
+
+    /* 1. New Issue (Blue) - 3rd child after title and br */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:nth-child(3) button[kind="primary"] {
+        background-color: #3b82f6 !important;
+        border-color: #2563eb !important;
+    }
+
+    /* 2. Dashboard (Blue) - 5th child after New Issue and Header */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:nth-child(5) button[kind="primary"] {
+        background-color: #3b82f6 !important;
+        border-color: #2563eb !important;
+    }
+
+    /* 3. All Issues (Blue) - 6th child */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:nth-child(6) button[kind="primary"] {
+        background-color: #3b82f6 !important;
+        border-color: #2563eb !important;
+    }
+
+    /* Status Filters (Quick Views) */
+    /* 4. Open (Red) - 8th child after Quick Views header */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:nth-child(8) button[kind="primary"] {
+        background-color: #ef4444 !important;
+        border-color: #dc2626 !important;
+    }
+    /* 5. In Progress (Orange) - 9th child */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:nth-child(9) button[kind="primary"] {
+        background-color: #f59e0b !important;
+        border-color: #d97706 !important;
+    }
+    /* 6. Fixed (Green) - 10th child */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:nth-child(10) button[kind="primary"] {
+        background-color: #10b981 !important;
+        border-color: #059669 !important;
+    }
+    /* 7. Closed (Gray) - 11th child */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:nth-child(11) button[kind="primary"] {
+        background-color: #6b7280 !important;
+        border-color: #4b5563 !important;
+    }
+
+    /* 8. Settings (Blue) - 13th child after System header */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:nth-child(13) button[kind="primary"] {
+        background-color: #3b82f6 !important;
+        border-color: #2563eb !important;
+    }
+
+    /* Sidebar Divider/Titles */
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] h3 {
+        font-weight: 700 !important;
+        font-size: 0.8rem !important;
+        color: #64748b !important;
+        margin-bottom: 0.6rem !important;
+        margin-top: 1.8rem !important;
+        padding-left: 2px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.1em !important;
+        display: block !important;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.08) !important;
+        padding-bottom: 6px !important;
+    }
+
+    section[data-testid="stSidebar"] h3 {
+        font-size: 0.85rem !important;
+    }
+
+    /* Dark mode adjustments */
+    @media (prefers-color-scheme: dark) {
+        section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
+            background-color: rgba(255, 255, 255, 0.05) !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            background-color: #1a1c24;
+            border: 1px solid #2d303d;
+        }
     }
     </style>
     """,
@@ -837,6 +940,21 @@ def _inject_global_css():
 
 # --- Main App ---
 def main():
+    # 1. Sync Query Params to State (Deep Linking) - ONCE per change
+    params = st.query_params.to_dict()
+    if "_last_params" not in st.session_state:
+        st.session_state._last_params = {}
+
+    if params != st.session_state._last_params:
+        if "lang" in params:
+            st.session_state._lang = params["lang"]
+        if "issue" in params:
+            st.session_state.current_view = "issue_detail"
+            st.session_state.selected_issue_id = params["issue"]
+        elif "view" in params:
+            st.session_state.current_view = params["view"]
+        st.session_state._last_params = params
+
     _inject_global_css()
     issues = manager.scan_all_issues()
     render_sidebar()

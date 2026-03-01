@@ -28,23 +28,23 @@ def inject_custom_css():
         align-items: center;
         font-size: 14px;
         margin-bottom: 16px;
-        padding: 8px 12px;
-        background: #f8f9fa;
-        border-radius: 6px;
-        border: 1px solid #e9ecef;
+        padding: 8px 16px;
+        background: #f1f5f9;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
     }
 
     .breadcrumb-current {
         display: flex;
         align-items: center;
-        gap: 4px;
-        color: #495057;
+        gap: 6px;
+        color: #64748b;
         font-weight: 500;
         font-size: 14px;
-        padding: 8px 12px;
-        background: #f8f9fa;
-        border-radius: 6px;
-        border: 1px solid #e9ecef;
+        padding: 8px 16px;
+        background: #f8fafc;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
     }
 
     .breadcrumb-item {
@@ -115,10 +115,11 @@ def inject_custom_css():
     /* 元数据容器 */
     .metadata-container {
         margin: 16px 0;
-        padding: 16px;
-        background: #f8f9fa;
-        border-radius: 8px;
-        border: 1px solid #e9ecef;
+        padding: 20px;
+        background: #f8fafc;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
     }
 
     .metadata-row {
@@ -141,15 +142,15 @@ def inject_custom_css():
     }
 
     .metadata-label {
-        font-weight: 500;
-        color: #6c757d;
-        min-width: 80px;
+        font-weight: 600;
+        color: #475569;
+        min-width: 100px;
         flex-shrink: 0;
     }
 
     .metadata-value {
-        color: #212529;
-        font-weight: 400;
+        color: #0f172a;
+        font-weight: 500;
         flex: 1;
     }
 
@@ -271,36 +272,55 @@ def inject_custom_css():
         }
     }
 
-    /* 深色模式支持 */
     @media (prefers-color-scheme: dark) {
-        .breadcrumb-current,
-        .metadata-container {
-            background: #2d3748;
-            border-color: #4a5568;
-            color: #e2e8f0;
+        .breadcrumb-container,
+        .breadcrumb-current {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+            color: #94a3b8 !important;
+        }
+
+        .breadcrumb-separator {
+            color: #64748b !important;
+        }
+
+        .breadcrumb-link {
+            color: #60a5fa !important;
+        }
+
+        .breadcrumb-current {
+            background: #0f172a !important;
+            color: #f8fafc !important;
+            border-color: #334155 !important;
         }
 
         .issue-title {
-            color: #e2e8f0;
+            color: #f8fafc !important;
         }
 
-        .status-flow-container {
-            background: #2d3748;
-            border-color: #4a5568;
-        }
-
-        .status-description {
-            background: #1a365d;
-            color: #90cdf4;
-            border-color: #2b6cb0;
+        .metadata-container {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.1) !important;
         }
 
         .metadata-label {
-            color: #a0aec0;
+            color: #94a3b8 !important;
         }
 
         .metadata-value {
-            color: #e2e8f0;
+            color: #e2e8f0 !important;
+        }
+
+        .status-description {
+            background: rgba(30, 58, 138, 0.3) !important;
+            color: #93c5fd !important;
+            border-color: #2563eb !important;
+        }
+
+        .status-flow-container {
+            background: #0f172a !important;
+            border-color: #1e293b !important;
         }
     }
     </style>
@@ -324,10 +344,10 @@ def get_issue_type_config(issue_type: str) -> dict:
 def get_status_config(status: str) -> dict:
     """Get status configuration including icon and color."""
     status_configs = {
-        "open": {"icon": "⚪", "color": "#718096", "label": t("status_open")},  # Gray/Open
-        "in-progress": {"icon": "🔵", "color": "#3182ce", "label": t("status_in-progress")},  # Blue/Progress
+        "open": {"icon": "🔴", "color": "#e53e3e", "label": t("status_open")},  # Red/Open
+        "in-progress": {"icon": "🟠", "color": "#dd6b20", "label": t("status_in-progress")},  # Orange/Progress
         "fixed": {"icon": "🟢", "color": "#38a169", "label": t("status_fixed")},  # Green/Fixed
-        "closed": {"icon": "✅", "color": "#2d3748", "label": t("status_closed")},  # Dark/Closed
+        "closed": {"icon": "⚪", "color": "#cbd5e0", "label": t("status_closed")},  # White/Closed
     }
     return status_configs.get(status.lower(), {"icon": "❓", "color": "#718096", "label": status})
 
@@ -337,51 +357,71 @@ def format_timestamp(ts: int) -> str:
     return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def render_breadcrumb_navigation(issue: dict):
+def render_common_breadcrumb(crumbs, current_label, current_icon, nav_fn):
     """
-    Render beautiful breadcrumb navigation with functional links and precise spacing.
-    Uses proportional weights to ensure a tight, natural 'text-like' feel.
+    Consolidated breadcrumb renderer for all views.
+    crumbs: List of (label, view_name, icon)
+    current_label: Label for the current page
+    current_icon: Icon for the current page
+    nav_fn: Navigation function (usually nav_to)
+    """
+    # Inject CSS
+    inject_custom_css()
+
+    # Calculate weights
+    weights = []
+    for label, _, _ in crumbs:
+        weights.append(len(label) + 4)  # label + icon
+        weights.append(1)  # separator
+    weights.append(len(current_label) + 4)  # current label + icon
+    weights.append(50)  # aggressive trailing weight
+
+    cols = st.columns(weights, gap="small")
+
+    col_idx = 0
+    for i, (label, view_name, icon) in enumerate(crumbs):
+        with cols[col_idx]:
+            if st.button(f"{icon} {label}", key=f"bc_{view_name}_{i}", type="tertiary", use_container_width=True):
+                nav_fn(view_name)
+        col_idx += 1
+
+        with cols[col_idx]:
+            st.markdown(
+                '<div style="color: #cbd5e0; line-height: 2.2; text-align: center; width: 100%;">›</div>',
+                unsafe_allow_html=True,
+            )
+        col_idx += 1
+
+    with cols[col_idx]:
+        st.markdown(
+            f'<div style="color: #718096; font-size: 0.9em; line-height: 2.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{current_icon} {current_label}</div>',
+            unsafe_allow_html=True,
+        )
+
+
+def render_breadcrumb_navigation(issue: dict, nav_fn=None):
+    """
+    Render beautiful breadcrumb navigation for issue detail.
     """
     home_label = t("header_breadcrumb_home")
     issues_label = t("header_breadcrumb_issues")
 
-    # Calculate weights based on text length + icon (roughly)
-    w_home = len(home_label) + 4
-    w_issues = len(issues_label) + 4
-    w_sep = 1
-    w_current = 20
+    crumbs = [
+        (home_label, "index", "🏠"),
+        (issues_label, "all_issues", "📋"),
+    ]
 
-    # Create columns with aggressive trailing weight to squeeze links to the left
-    cols = st.columns([w_home, w_sep, w_issues, w_sep, w_current, 50], gap="small")
+    title_truncated = issue["title"][:50] + ("..." if len(issue["title"]) > 50 else "")
 
-    with cols[0]:
-        if st.button(f"🏠 {home_label}", key="bc_home", type="tertiary", use_container_width=True):
-            st.session_state.current_view = "index"
+    if nav_fn:
+        render_common_breadcrumb(crumbs, title_truncated, "📄", nav_fn)
+    else:
+        # Fallback to local state update if nav_fn not provided
+        def local_nav(view):
+            st.session_state.current_view = view
             st.rerun()
 
-    with cols[1]:
-        st.markdown(
-            '<div style="color: #cbd5e0; line-height: 2.2; text-align: center; width: 100%;">›</div>',
-            unsafe_allow_html=True,
-        )
-
-    with cols[2]:
-        if st.button(f"📋 {issues_label}", key="bc_issues", type="tertiary", use_container_width=True):
-            st.session_state.current_view = "all_issues"
-            st.rerun()
-
-    with cols[3]:
-        st.markdown(
-            '<div style="color: #cbd5e0; line-height: 2.2; text-align: center; width: 100%;">›</div>',
-            unsafe_allow_html=True,
-        )
-
-    with cols[4]:
-        title_truncated = issue["title"][:50] + ("..." if len(issue["title"]) > 50 else "")
-        st.markdown(
-            f'<div style="color: #718096; font-size: 0.9em; line-height: 2.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">📄 {title_truncated}</div>',
-            unsafe_allow_html=True,
-        )
+        render_common_breadcrumb(crumbs, title_truncated, "📄", local_nav)
 
 
 def render_issue_title_section(issue: dict):
@@ -623,7 +663,7 @@ def render_action_buttons(issue: dict, manager):
                     st.warning(t("header_confirm_delete"))
 
 
-def render_enhanced_issue_header(issue: dict, manager):
+def render_enhanced_issue_header(issue: dict, manager, nav_fn=None):
     """Main function to render the complete enhanced issue header."""
 
     # Inject custom CSS
@@ -634,7 +674,7 @@ def render_enhanced_issue_header(issue: dict, manager):
 
     with col_left:
         # Breadcrumb navigation
-        render_breadcrumb_navigation(issue)
+        render_breadcrumb_navigation(issue, nav_fn)
 
         # Title section
         render_issue_title_section(issue)
